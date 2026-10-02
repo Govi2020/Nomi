@@ -53,7 +53,7 @@ function getPipeline(onProgress: ProgressHandler) {
   return pipelinePromise
 }
 
-async function resampleAudio(audio: Float32Array, sampleRate: number) {
+export async function resamplePcm(audio: Float32Array, sampleRate: number) {
   if (sampleRate === TARGET_SAMPLE_RATE) return audio
   const outputLength = Math.max(1, Math.round(audio.length * TARGET_SAMPLE_RATE / sampleRate))
 
@@ -84,7 +84,7 @@ export async function preloadWhisper(onProgress: ProgressHandler) {
 }
 
 export async function transcribePcm(audio: Float32Array, sampleRate: number, onProgress: ProgressHandler) {
-  const [transcriber, resampled] = await Promise.all([getPipeline(onProgress), resampleAudio(audio, sampleRate)])
+  const [transcriber, resampled] = await Promise.all([getPipeline(onProgress), resamplePcm(audio, sampleRate)])
   return transcriber(resampled, {
     chunk_length_s: 30,
     stride_length_s: 5,

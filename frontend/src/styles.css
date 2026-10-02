@@ -6108,3 +6108,451 @@ body,
         width: 100%;
     }
 }
+
+@media (min-width: 761px) {
+    .app-shell > .sidebar {
+        width: 76px;
+        padding: 24px 12px 14px;
+        overflow-x: hidden;
+        transition: width .22s cubic-bezier(.2, .75, .3, 1), padding .22s ease, box-shadow .22s ease;
+    }
+
+    .app-shell > .sidebar:hover,
+    .app-shell > .sidebar:focus-within {
+        width: 220px;
+        padding: 24px 14px 14px;
+        box-shadow: 10px 0 24px #090b0838;
+    }
+
+    .brand,
+    .sidebar:hover .brand,
+    .sidebar:focus-within .brand {
+        width: 48px;
+        justify-content: center;
+        padding-inline: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        transition: width .18s ease, justify-content .18s ease;
+    }
+
+    .brand > span:last-child {
+        display: none;
+    }
+
+    .sidebar:hover .brand,
+    .sidebar:focus-within .brand {
+        width: auto;
+        justify-content: flex-start;
+        padding-inline: 4px;
+    }
+
+    .sidebar:hover .brand > span:last-child,
+    .sidebar:focus-within .brand > span:last-child {
+        display: inline;
+    }
+
+    .nav-label,
+    .sidebar:hover .nav-label,
+    .sidebar:focus-within .nav-label {
+        height: 0;
+        margin: 0;
+        overflow: hidden;
+        visibility: hidden;
+        transition: height .18s ease, margin .18s ease;
+    }
+
+    .sidebar:hover .nav-label,
+    .sidebar:focus-within .nav-label {
+        height: auto;
+        margin: 25px 0 10px 9px;
+        visibility: visible;
+    }
+
+    .nav-button,
+    .sidebar:hover .nav-button,
+    .sidebar:focus-within .nav-button {
+        width: 48px;
+        justify-content: center;
+        gap: 0;
+        padding: 0;
+        font-size: 0;
+        transition: width .2s ease, gap .2s ease, padding .2s ease, color .16s ease, background .16s ease;
+    }
+
+    .nav-button > span,
+    .sidebar:hover .nav-button > span,
+    .sidebar:focus-within .nav-button > span {
+        display: none;
+    }
+
+    .sidebar:hover .nav-button,
+    .sidebar:focus-within .nav-button {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 11px;
+        padding: 0 10px;
+        font-size: 12px;
+    }
+
+    .sidebar:hover .nav-button > span,
+    .sidebar:focus-within .nav-button > span {
+        display: inline;
+    }
+
+    .nav-button.active:before,
+    .sidebar:hover .nav-button.active:before,
+    .sidebar:focus-within .nav-button.active:before {
+        left: -12px;
+    }
+
+    .sidebar:hover .nav-button.active:before,
+    .sidebar:focus-within .nav-button.active:before {
+        left: -14px;
+    }
+
+    .sidebar-bottom > .nav-button,
+    .sidebar:hover .sidebar-bottom > .nav-button,
+    .sidebar:focus-within .sidebar-bottom > .nav-button {
+        width: 48px;
+        margin-bottom: 0;
+    }
+
+    .sidebar:hover .sidebar-bottom > .nav-button,
+    .sidebar:focus-within .sidebar-bottom > .nav-button {
+        width: 100%;
+    }
+
+    .main-area {
+        margin-left: 76px;
+        transition: margin-left .22s cubic-bezier(.2, .75, .3, 1);
+    }
+
+    .app-shell > .sidebar:hover + .main-area,
+    .app-shell > .sidebar:focus-within + .main-area {
+        margin-left: 220px;
+    }
+}
+
+.nav-button svg,
+.home-section-heading > button svg,
+.diary-library-arrow,
+.source-cards button > svg:last-child,
+.timeline-review-highlights button > svg {
+    transition: transform .16s ease, color .16s ease;
+}
+
+.home-entry-card,
+.home-memory-card,
+.diary-library-row,
+.source-cards button,
+.timeline-review-highlights button,
+.support-row {
+    transition: background-color .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .nav-button:hover svg,
+    .home-section-heading > button:hover svg,
+    .diary-library-row:hover .diary-library-arrow,
+    .source-cards button:hover > svg:last-child,
+    .timeline-review-highlights button:hover > svg {
+    transform: translateX(2px);
+    }
+
+    .home-entry-card:hover,
+    .home-memory-card:hover,
+    .diary-library-row:hover,
+    .source-cards button:hover,
+    .timeline-review-highlights button:hover {
+    transform: translateY(-1px);
+    }
+
+    .primary-action:hover,
+    .home-write-button:hover,
+    .outline-action:hover,
+    .filter-button:hover,
+    .ask-new-chat:hover:not(:disabled),
+    .ask-composer-bottom button:hover:not(:disabled),
+    .diary-new-entry:hover,
+    .settings-secondary-action:hover {
+    transform: translateY(-1px);
+    }
+
+    .topic-tag:hover,
+    .timeline-review-themes span:hover,
+    .insight-tags button:hover {
+    border-color: var(--sage2);
+    background-color: var(--panel2);
+    }
+}
+
+.settings-report .report-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 17px;
+}
+
+.report-actions > p {
+    flex: 1;
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.report-close {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.report-close:hover {
+    color: var(--ink);
+    background: var(--panel2);
+}
+
+.clinician-report-print {
+    max-width: 780px;
+    margin-top: 15px;
+    padding: 24px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--ink);
+}
+
+.report-title {
+    padding-bottom: 17px;
+    border-bottom: 1px solid var(--line);
+}
+
+.report-title > p:first-child {
+    margin: 0;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.report-title h1 {
+    margin: 10px 0 7px;
+    color: var(--ink);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -.4px;
+}
+
+.report-title > p:last-child {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.report-caution {
+    margin-top: 17px;
+    padding: 13px 15px;
+    border-left: 3px solid var(--sage2);
+    background: var(--panel2);
+}
+
+.report-caution b {
+    font-size: 11px;
+}
+
+.report-caution p,
+.report-section > p,
+.report-observation > p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.report-section {
+    padding: 17px 0 15px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.report-section h2 {
+    margin: 0 0 9px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.report-metrics {
+    margin: 0;
+}
+
+.report-metrics > div {
+    display: grid;
+    grid-template-columns: minmax(145px, .7fr) minmax(0, 2fr);
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line-soft);
+}
+
+.report-metrics dt {
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.report-metrics dd {
+    margin: 0;
+    color: var(--ink);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.report-small-note {
+    margin: 9px 0 0;
+    color: var(--quiet);
+    font-size: 9px;
+    line-height: 1.5;
+}
+
+.report-observation {
+    padding: 12px 0;
+    border-top: 1px solid var(--line-soft);
+}
+
+.report-observation h3 {
+    margin: 0;
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.report-observation ul,
+.report-prompts {
+    margin: 9px 0 0;
+    padding-left: 18px;
+}
+
+.report-observation li,
+.report-prompts li {
+    margin-top: 7px;
+    color: var(--ink);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.report-observation li b,
+.report-observation li span {
+    display: block;
+}
+
+.report-observation li span {
+    margin-top: 3px;
+    color: var(--muted);
+}
+
+.report-footer {
+    padding-top: 14px;
+    color: var(--quiet);
+    font-size: 9px;
+    line-height: 1.55;
+}
+
+.is-spinning {
+    animation: report-spin .9s linear infinite;
+}
+
+@keyframes report-spin {
+    to { transform: rotate(360deg) }
+}
+
+@page {
+    size: auto;
+    margin: 16mm;
+}
+
+@media print {
+    body,
+    :root,
+    :root[data-theme="light"] {
+        background: #fff !important;
+        color: #222 !important;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+
+    body * {
+        visibility: hidden !important;
+    }
+
+    .clinician-report-print,
+    .clinician-report-print * {
+        visibility: visible !important;
+    }
+
+    .clinician-report-print {
+        position: absolute;
+        inset: 0 auto auto 0;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: #fff;
+        color: #222;
+        font-family: Arial, sans-serif;
+    }
+
+    .clinician-report-print .report-title,
+    .clinician-report-print .report-section,
+    .clinician-report-print .report-caution,
+    .clinician-report-print .report-observation,
+    .clinician-report-print .report-metrics > div {
+        break-inside: avoid;
+    }
+
+    .clinician-report-print .report-caution,
+    .clinician-report-print .report-section,
+    .clinician-report-print .report-observation {
+        background: #fff;
+    }
+
+    .clinician-report-print,
+    .clinician-report-print h1,
+    .clinician-report-print h2,
+    .clinician-report-print h3,
+    .clinician-report-print dd,
+    .clinician-report-print li {
+        color: #222 !important;
+    }
+
+    .clinician-report-print p,
+    .clinician-report-print dt,
+    .clinician-report-print li span,
+    .clinician-report-print .report-footer,
+    .clinician-report-print .report-small-note {
+        color: #444 !important;
+    }
+}
+
+@media (max-width: 600px) {
+    .settings-report .report-actions {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .report-actions > p {
+        flex-basis: 100%;
+    }
+
+    .clinician-report-print {
+        padding: 16px;
+    }
+
+    .report-metrics > div {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}

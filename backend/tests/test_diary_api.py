@@ -1,14 +1,16 @@
 import asyncio
+from io import BytesIO
 import tempfile
 import unittest
 import json
+import wave
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend import config, db, insights, ollama_client, organize
+from backend import config, db, insights, ollama_client, organize, parakeet_transcription
 from backend import server
 from backend.server import app
 
@@ -287,6 +289,78 @@ class DiaryApiTests(unittest.TestCase):
         self.assertTrue(requests[0][2])
         self.assertIn("Journal entry evidence 0", requests[0][1])
 
+    def test_clinician_discussion_report_uses_all_diary_metadata_and_validates_evidence(self):
+        entry_ids = [
+            db.create_entry(
+                f"Repeated routine and context {index}",
+                f"Entry {index}",
+                mood="Calm" if index < 2 else "Worried",
+                energy="Steady",
+            )
+            for index in range(3)
+        ]
+        for index, entry_id in enumerate(entry_ids):
+            db.set_entry_tags(entry_id, ["routine", "work" if index < 2 else "rest"])
+            with closing(db.connect()) as conn:
+                conn.execute(
+                    "UPDATE entries SET created_at=? WHERE id=?",
+                    (f"2026-09-0{index + 1}T12:00:00.000Z", entry_id),
+                )
+                conn.commit()
+
+        requests = []
+
+        async def chat(system, user, json_mode=False, temperature=0.4):
+            requests.append((system, user, json_mode, temperature))
+            return json.dumps({
+                "observations": [
+                    {
+                        "title": "Repeated work routine",
+                        "description": "Two entries describe a similar work routine.",
+                        "source_ids": [entry_ids[0], entry_ids[1]],
+                    },
+                    {
+                        "title": "Unsupported observation",
+                        "description": "This refers to an entry outside the supplied evidence.",
+                        "source_ids": [entry_ids[0], 999999],
+                    },
+                    {
+                        "title": "Single note",
+                        "description": "This only appears once.",
+                        "source_ids": [entry_ids[0]],
+                    },
+                ]
+            })
+
+        with patch.object(server.ollama_client, "chat", chat):
+            response = self.client.get("/api/insights/clinical-report")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["entry_count"], 3)
+        self.assertEqual(result["analyzed_entry_count"], 3)
+        self.assertEqual(result["writing_days"], 3)
+        self.assertEqual(result["mood_counts"], {"Calm": 2, "Worried": 1})
+        self.assertEqual(result["top_tags"][0], {"tag": "routine", "count": 3})
+        self.assertEqual(len(result["observations"]), 1)
+        self.assertEqual(
+            [source["id"] for source in result["observations"][0]["sources"]],
+            [str(entry_ids[0]), str(entry_ids[1])],
+        )
+        self.assertIn("Do not diagnose", requests[0][0])
+        self.assertIn("at least two different entries", requests[0][0])
+        self.assertTrue(requests[0][2])
+        self.assertEqual(requests[0][3], 0.2)
+
+    def test_clinician_discussion_report_with_no_entries_skips_model(self):
+        with patch.object(server.ollama_client, "chat") as chat:
+            response = self.client.get("/api/insights/clinical-report")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["entry_count"], 0)
+        self.assertEqual(response.json()["observations"], [])
+        chat.assert_not_called()
+
     def test_timeline_month_and_year_reviews_use_period_entries_and_validate_highlights(self):
         entry_ids = [
             db.create_entry(f"Review entry for {entry_date}", f"Entry {entry_date}")
@@ -371,6 +445,49 @@ class DiaryApiTests(unittest.TestCase):
         payload = payloads[0][2]
         self.assertEqual(payload["keep_alive"], "10m")
         self.assertEqual(payload["options"]["num_predict"], 160)
+
+    def test_talk_transcription_prepare_loads_parakeet(self):
+        with patch.object(parakeet_transcription, "prepare_model") as prepare_model:
+            response = self.client.post("/api/talk/transcription/prepare")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {
+            "ready": True,
+            "model": "nvidia/parakeet-tdt-0.6b-v3",
+        })
+        prepare_model.assert_called_once_with()
+
+    def test_talk_transcription_endpoint_uses_parakeet_for_uploaded_audio(self):
+        audio = BytesIO()
+        with wave.open(audio, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16_000)
+            wav.writeframes(b"\x00\x00" * 16_000)
+        audio_bytes = audio.getvalue()
+
+        with patch.object(
+            parakeet_transcription,
+            "transcribe_wav",
+            return_value="A local Parakeet transcript.",
+        ) as transcribe:
+            response = self.client.post(
+                "/api/talk/transcription",
+                files={"file": ("talk-audio.wav", audio_bytes, "audio/wav")},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"text": "A local Parakeet transcript."})
+        transcribe.assert_called_once_with(audio_bytes)
+
+    def test_talk_transcription_rejects_invalid_wav(self):
+        response = self.client.post(
+            "/api/talk/transcription",
+            files={"file": ("talk-audio.wav", b"not a wav file", "audio/wav")},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("valid WAV", response.json()["detail"])
 
     def test_new_ask_chat_endpoint_creates_selectable_chat(self):
         created = self.client.post("/api/ask/chats", json={})

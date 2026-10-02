@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AudioLines, Mic, RotateCcw, Volume2, VolumeX } from 'lucide-react'
-import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
+import { talkTranscriptionService } from '../../services/talkTranscriptionService'
 import { streamTalk, type TalkMessage } from '../../services/talkService'
 import { WordReveal } from '../../components/WordReveal'
 import { selectWarmFemaleVoice } from './talkVoice'
@@ -59,7 +59,7 @@ function mergeTranscript(current: string, next: string) {
     const words = value.trim().split(/\s+/).filter(Boolean)
     const normalize = (word: string) => word.toLocaleLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
 
-    // Whisper can repeat a phrase inside a single result as well as across
+    // Speech models can repeat a phrase inside a result as well as across
     // overlapping windows. Collapse adjacent repeats of four or more words.
     for (let length = Math.min(Math.floor(words.length / 2), 32); length >= 4; length--) {
       for (let start = 0; start + length * 2 <= words.length; start++) {
@@ -166,15 +166,19 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     }
     refreshVoices()
     window.speechSynthesis?.addEventListener('voiceschanged', refreshVoices)
-    updatePhase('loading', 'Loading Whisper Tiny on this device...')
-    void preloadWhisper(message => {
+    updatePhase('loading', 'Preparing Parakeet TDT on the configured backend...')
+    void talkTranscriptionService.prepare(message => {
       if (active) setStatus(message)
     }).then(() => {
       if (!active) return
       setModelReady(true)
-      if (phaseRef.current === 'loading') updatePhase('idle', 'Whisper is ready on this device. Talk whenever you like.')
+      if (phaseRef.current === 'loading') updatePhase('idle', 'Parakeet TDT is ready on the backend. Talk whenever you like.')
     }).catch(error => {
-      if (active) setStatus(error instanceof Error ? `Local speech model unavailable: ${error.message}` : 'Local speech model unavailable.')
+      if (active) {
+        updatePhase('error', error instanceof Error
+          ? `Parakeet TDT is unavailable: ${error.message}`
+          : 'Parakeet TDT is unavailable.')
+      }
     })
     return () => {
       active = false
@@ -347,7 +351,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     if (audio.length < sampleRateRef.current) return
 
     setStatus('Recognizing your words...')
-    const task = transcribePcm(audio, sampleRateRef.current, message => setStatus(message)).then(transcript => {
+    const task = talkTranscriptionService.transcribe(audio, sampleRateRef.current, message => setStatus(message)).then(transcript => {
       if (!transcript.trim()) return
       const merged = mergeTranscript(interimTextRef.current, transcript)
       interimTextRef.current = merged
@@ -357,7 +361,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     }).catch(error => {
       interimLastEndRef.current = end
       interimNextAtRef.current = end + Math.round(sampleRateRef.current * INTERIM_STRIDE_SECONDS)
-      setStatus(error instanceof Error ? `Local speech recognition is catching up: ${error.message}` : 'Local speech recognition is catching up.')
+      setStatus(error instanceof Error ? `Parakeet is catching up: ${error.message}` : 'Parakeet is catching up.')
     }).finally(() => {
       interimTaskRef.current = null
       if (phaseRef.current === 'recording' && !finalizingRef.current) {
@@ -383,7 +387,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       if (totalSamples - tailStart >= sampleRateRef.current * 0.35) {
         const tail = concatenateFrames(utteranceRef.current, tailStart, totalSamples)
         try {
-          tailText = await transcribePcm(tail, sampleRateRef.current, message => setStatus(message))
+          tailText = await talkTranscriptionService.transcribe(tail, sampleRateRef.current, message => setStatus(message))
         } catch (error) {
           if (!interimTextRef.current) throw error
         }
@@ -566,7 +570,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       microphoneStartingRef.current = false
       listeningRef.current = true
       if (phaseRef.current !== 'speaking' && phaseRef.current !== 'thinking') {
-        updatePhase('listening', modelReady ? 'Hold Space and speak, or press and hold the mic.' : 'Loading local speech model...')
+        updatePhase('listening', modelReady ? 'Hold Space and speak, or press and hold the mic.' : 'Loading Parakeet TDT on the backend...')
       }
       if (!pushHeldRef.current) releasePushToTalk()
     } catch (error) {
@@ -601,7 +605,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     releaseAudioCapture()
     utteranceRef.current = []
     utteranceSamplesRef.current = 0
-    updatePhase('idle', modelReady ? 'Your voice stays on this device.' : 'Local Whisper is still loading.')
+    updatePhase('idle', modelReady ? 'Ready for your next thought.' : 'Parakeet TDT is still loading on the backend.')
   }
 
   const clearConversation = () => {
@@ -721,7 +725,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
         <button className="talk-icon-button" onClick={clearConversation} aria-label="Clear conversation" title="Clear conversation"><RotateCcw size={17} /></button>
       </div>
     </div>
-    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Speech is transcribed on this device. Your recent conversation stays in this tab.</span></div>
+    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Talk audio is sent to your configured backend for Parakeet TDT transcription. The model downloads from Hugging Face there on first use.</span></div>
     <div className="talk-transcript" ref={scrollRef} aria-live="polite" aria-label="Conversation">
       {turns.map(turn => <article className={`talk-turn ${turn.role === 'assistant' ? 'assistant-turn' : 'user-turn'}`} key={turn.id}>
         <span className="talk-turn-label">{turn.role === 'assistant' ? 'MEMORY' : 'YOU'}{turn.memoryUsed && <small>REMEMBERED</small>}{turn.interrupted && <small>INTERRUPTED</small>}</span>

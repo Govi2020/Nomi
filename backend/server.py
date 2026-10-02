@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import config, db, insights, mcp_client, ollama_client, organize, rag, timeline
+from . import config, db, insights, mcp_client, ollama_client, organize, parakeet_transcription, rag, timeline
 
 app = FastAPI(title="Private Journal Backend")
 app.add_middleware(
@@ -223,6 +223,17 @@ async def journal_insights():
         raise HTTPException(status_code=503, detail=f"Journal insights are unavailable: {exc}") from exc
 
 
+@app.get("/api/insights/clinical-report")
+async def clinician_discussion_report():
+    try:
+        return await insights.clinician_report()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"The diary discussion report is unavailable: {exc}",
+        ) from exc
+
+
 @app.get("/api/timeline/review")
 async def timeline_review(
     period: Literal["month", "year"] = Query(...),
@@ -253,6 +264,32 @@ def search(q: str = Query(default=""), limit: int = Query(default=50, ge=1, le=1
 @app.get("/api/graph")
 def graph():
     return db.get_graph()
+
+
+@app.post("/api/talk/transcription/prepare")
+async def prepare_talk_transcription():
+    try:
+        await asyncio.to_thread(parakeet_transcription.prepare_model)
+    except parakeet_transcription.ParakeetUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ready": True, "model": parakeet_transcription.MODEL_ID}
+
+
+@app.post("/api/talk/transcription")
+async def transcribe_talk(file: UploadFile = File(...)):
+    try:
+        contents = await file.read(2_000_001)
+        if len(contents) > 2_000_000:
+            raise HTTPException(status_code=413, detail="Talk audio must be 2 MB or smaller.")
+        try:
+            text = await asyncio.to_thread(parakeet_transcription.transcribe_wav, contents)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except parakeet_transcription.ParakeetUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"text": text}
+    finally:
+        await file.close()
 
 
 @app.post("/api/transcribe")

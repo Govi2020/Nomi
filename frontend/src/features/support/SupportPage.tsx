@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { ChevronRight, Download, LockKeyhole, Moon, Sun, Trash2 } from 'lucide-react'
+import { ChevronRight, Download, LockKeyhole, Moon, Printer, RefreshCw, Sun, Trash2, X } from 'lucide-react'
 import type { DiaryEntry, Page } from '../../types'
 import { PageHeading } from '../../components/PageHeading'
 import { energyOptions, moodOptions, type UserPreferences } from '../../services/userPreferences'
+import { clinicalReportService, type ClinicalReport } from '../../services/clinicalReportService'
 
 type Props = {
   page: Page
@@ -22,6 +23,9 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
   const [confirmation, setConfirmation] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [report, setReport] = useState<ClinicalReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState('')
   const content: Record<string, { eyebrow: string; title: string; subtitle: string; rows: string[] }> = {
     People: { eyebrow: 'THE PEOPLE IN YOUR STORY', title: 'People', subtitle: 'The names that show up in your memories.', rows: ['Arun · 8 moments together', 'Rahul · 5 moments together', 'Maya · 3 moments together'] },
     Projects: { eyebrow: 'WHAT HAS YOUR ATTENTION', title: 'Projects', subtitle: 'Ideas and work you’ve been giving your time to.', rows: ['Memory · 7 memories', 'College · 5 memories', 'Personal · 3 memories'] },
@@ -67,6 +71,26 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
     }
   }
 
+  const generateReport = async () => {
+    setReportLoading(true)
+    setReportError('')
+    setReport(null)
+    try {
+      setReport(await clinicalReportService.getReport())
+    } catch (reason) {
+      setReportError(reason instanceof Error ? reason.message : 'Could not prepare the diary discussion report.')
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  const reportRange = report?.first_entry_date
+    ? `${report.first_entry_date} to ${report.last_entry_date}`
+    : 'No dated diary entries'
+  const countSummary = (counts: Record<string, number>) => Object.entries(counts)
+    .map(([label, count]) => `${label}: ${count}`)
+    .join(' · ')
+
   return <section className="page-content">
     <PageHeading eyebrow={data.eyebrow} title={data.title} subtitle={data.subtitle} />
     {page !== 'Settings' && <div className="support-list">{data.rows.map((row, i) => <div className="support-row" key={row}><span className="support-index">0{i + 1}</span><span>{row}</span><ChevronRight size={15} /></div>)}</div>}
@@ -110,7 +134,63 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
         {message && <p className="settings-feedback" role="status">{message}</p>}
         {error && <p className="settings-feedback is-error" role="alert">{error}</p>}
       </section>
-      <div className="privacy-note-large"><LockKeyhole size={17} /><p>Whisper Tiny downloads once, then dictation runs on this device. Manage microphone access in your browser’s site settings.</p></div>
+      <section className="settings-section settings-report" aria-labelledby="settings-report-heading">
+        <div className="settings-section-heading">
+          <h2 id="settings-report-heading">Diary discussion report</h2>
+          <p>Create a private, evidence-linked summary of recurring journal observations to bring to a clinician. It is not a diagnosis or clinical assessment.</p>
+        </div>
+        <button className="settings-secondary-action" onClick={() => void generateReport()} disabled={reportLoading || diaryCount === 0}>
+          <RefreshCw size={15} className={reportLoading ? 'is-spinning' : ''} />
+          {reportLoading ? 'Reviewing diary patterns…' : report ? 'Regenerate report' : 'Generate report'}
+        </button>
+        {reportError && <p className="settings-feedback is-error" role="alert">Could not prepare the report: {reportError}</p>}
+        {report && <>
+          <div className="report-actions"><p role="status">Report is ready to review. Nothing is saved or shared by the report feature.</p><button className="settings-secondary-action" onClick={() => window.print()}><Printer size={15} />Print / Save as PDF</button><button className="report-close" onClick={() => setReport(null)} aria-label="Close report preview"><X size={16} /></button></div>
+          <article className="clinician-report-print">
+            <header className="report-title">
+              <p>MEMORY · PERSONAL DIARY SUMMARY</p>
+              <h1>Diary patterns for clinical discussion</h1>
+              <p>Prepared {report.generated_at} · Journal period: {reportRange}</p>
+            </header>
+            <div className="report-caution"><b>Context and limitations</b><p>This is a descriptive summary of self-selected diary writing, not a diagnosis, validated psychological test, or clinical opinion. Patterns may reflect what was written down rather than a person’s overall life. Counts are descriptive, not severity measures. Use the source entries and the person’s own account to add context or correct these observations.</p></div>
+            <section className="report-section">
+              <h2>Coverage</h2>
+              <p>{report.analyzed_entry_count} text entries reviewed out of {report.entry_count} saved diary entries, spanning {reportRange}. Entries were written on {report.writing_days} distinct dates.</p>
+              {report.analysis_sample_count < report.analyzed_entry_count && <p>The descriptive counts below cover all text entries. The qualitative observations were generated from a chronological sample of {report.analysis_sample_count} entries spanning the available period.</p>}
+            </section>
+            <section className="report-section">
+              <h2>Journal metadata (descriptive only)</h2>
+              <dl className="report-metrics">
+                <div><dt>Recorded mood labels</dt><dd>{countSummary(report.mood_counts) || 'No mood labels recorded'}</dd></div>
+                <div><dt>Recorded energy labels</dt><dd>{countSummary(report.energy_counts) || 'No energy labels recorded'}</dd></div>
+                <div><dt>Frequently tagged topics</dt><dd>{report.top_tags.length ? report.top_tags.map(item => `${item.tag} (${item.count})`).join(' · ') : 'No recurring tags recorded'}</dd></div>
+                <div><dt>Diary-writing days by weekday</dt><dd>{countSummary(report.writing_days_by_weekday) || 'Not available'}</dd></div>
+              </dl>
+              <p className="report-small-note">Mood, energy, and topic labels may be automatically organized from entry text; they are not standardized measures.</p>
+            </section>
+            <section className="report-section">
+              <h2>Repeated behaviour and self-described preferences</h2>
+              {!report.observations.length
+                ? <p>There were not enough repeated, evidence-linked observations to summarize. This does not imply anything about the person; the journal may be brief or cover varied topics.</p>
+                : report.observations.map((observation, index) => <article className="report-observation" key={`${observation.title}-${index}`}>
+                  <h3>{observation.title}</h3>
+                  <p>{observation.description}</p>
+                  <ul>{observation.sources.map(source => <li key={source.id}><b>[E{source.id}] {source.date} · {source.title}</b><span>{source.excerpt}</span></li>)}</ul>
+                </article>)}
+            </section>
+            <section className="report-section">
+              <h2>Questions the person may wish to explore</h2>
+              <ul className="report-prompts">
+                <li>Which observations feel representative, and which need more context?</li>
+                <li>What was happening in daily life around the dates shown in the cited entries?</li>
+                <li>Are there important experiences or strengths that this journal does not capture?</li>
+              </ul>
+            </section>
+            <footer className="report-footer">Generated from the person’s saved diary at their request. Interpretations are tentative and should be checked with the person; the report does not provide a diagnosis or treatment recommendation.</footer>
+          </article>
+        </>}
+      </section>
+      <div className="privacy-note-large"><LockKeyhole size={17} /><p>Diary dictation uses Whisper Tiny locally. Talk audio is sent to the configured backend for Parakeet TDT transcription; the model downloads from Hugging Face there on first use. Manage microphone access in your browser’s site settings.</p></div>
     </>}
   </section>
 }
