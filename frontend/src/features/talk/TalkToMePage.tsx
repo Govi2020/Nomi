@@ -104,12 +104,12 @@ function isLikelySpeechEcho(recognized: string, spoken: string) {
   return spokenText.includes(phrase) || phrase.includes(spokenText)
 }
 
-export function TalkToMePage() {
+export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }: { voiceReplies: boolean; speechRate: number; onVoiceRepliesChange: (enabled: boolean) => void }) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [phase, setPhase] = useState<Phase>('idle')
   const [status, setStatus] = useState('Your voice stays on this device.')
   const [liveDraft, setLiveDraft] = useState('')
-  const [voiceEnabled, setVoiceEnabled] = useState(true)
+  const [voiceEnabled, setVoiceEnabled] = useState(voiceReplies)
   const [modelReady, setModelReady] = useState(false)
   const [pushHeld, setPushHeld] = useState(false)
   const streamRef = useRef<MediaStream | null>(null)
@@ -146,7 +146,10 @@ export function TalkToMePage() {
   const speakingRef = useRef(false)
   const speakingTextRef = useRef('')
   const interruptedSpeechRef = useRef('')
-  const voiceEnabledRef = useRef(true)
+  const voiceEnabledRef = useRef(voiceReplies)
+  const speechRateRef = useRef(speechRate)
+  voiceEnabledRef.current = voiceReplies
+  speechRateRef.current = speechRate
   const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -238,7 +241,7 @@ export function TalkToMePage() {
     const utterance = new SpeechSynthesisUtterance(text)
     speakingTextRef.current = text
     utterance.lang = 'en-US'
-    utterance.rate = 0.94
+    utterance.rate = speechRateRef.current
     utterance.pitch = 1.02
     voicesRef.current = window.speechSynthesis.getVoices()
     utterance.voice = selectWarmFemaleVoice(voicesRef.current)
@@ -612,6 +615,7 @@ export function TalkToMePage() {
     const next = !voiceEnabledRef.current
     voiceEnabledRef.current = next
     setVoiceEnabled(next)
+    onVoiceRepliesChange(next)
     if (!next) {
       window.speechSynthesis?.cancel()
       speechQueueRef.current = []
@@ -621,6 +625,11 @@ export function TalkToMePage() {
       if (phaseRef.current === 'speaking') {
         updatePhase(listeningRef.current ? 'listening' : 'idle', 'Voice replies are muted. I’m still here with you.')
       }
+
+      useEffect(() => {
+        setVoiceEnabled(voiceReplies)
+        voiceEnabledRef.current = voiceReplies
+      }, [voiceReplies])
     } else {
       setStatus('Voice replies are on.')
     }

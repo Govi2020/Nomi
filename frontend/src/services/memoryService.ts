@@ -16,6 +16,7 @@ interface ApiDiaryEntry {
   title: string | null
   text: string
   mood: string | null
+  energy: string | null
   tags: string[]
   entities: { name: string }[]
 }
@@ -32,7 +33,7 @@ function fromApiDiaryEntry(entry: ApiDiaryEntry): DiaryEntry {
     title: entry.title ?? '',
     content: entry.text,
     mood: entry.mood ?? 'Thoughtful',
-    energy: 'Steady',
+    energy: entry.energy ?? 'Steady',
     topics: entry.tags,
     people: entry.entities.map(entity => entity.name),
     memoryIds: [],
@@ -45,12 +46,19 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
     const entryId = /^\d+$/.test(draftId) ? draftId : draftEntryIds.get(draftId)
     let saved: ApiDiaryEntry
     if (entryId) {
-      saved = await apiClient.put<ApiDiaryEntry>(`/api/entries/${entryId}`, { text: entry.content, title: entry.title })
+      saved = await apiClient.put<ApiDiaryEntry>(`/api/entries/${entryId}`, {
+        text: entry.content,
+        title: entry.title,
+        mood: entry.mood,
+        energy: entry.energy,
+      })
     } else {
       const response = await apiClient.post<{ entry: ApiDiaryEntry }>('/api/entries', {
         text: entry.content,
         title: entry.title,
         source,
+        mood: entry.mood,
+        energy: entry.energy,
       })
       saved = response.entry
       draftEntryIds.set(draftId, String(saved.id))
@@ -103,12 +111,26 @@ async function transcribeAudio(blob: Blob) {
   return result.text?.trim() ?? ''
 }
 
+async function loadAllDiaryEntries() {
+  const limit = 1000
+  const entries: ApiDiaryEntry[] = []
+  let offset = 0
+  while (true) {
+    const page = await apiClient.get<ApiDiaryEntry[]>(`/api/entries?limit=${limit}&offset=${offset}`)
+    entries.push(...page)
+    if (page.length < limit) break
+    offset += page.length
+  }
+  return entries.map(fromApiDiaryEntry)
+}
+
 export const memoryService = {
   async getMemories() { await delay(); return memories },
   async getMemory(id: string) { await delay(); return memories.find(item => item.id === id) ?? memories[0] },
-  async getDiary() {
-    const entries = await apiClient.get<ApiDiaryEntry[]>('/api/entries')
-    return entries.map(fromApiDiaryEntry)
+  getDiary: loadAllDiaryEntries,
+  getAllDiaryEntries: loadAllDiaryEntries,
+  deleteAllDiaryEntries() {
+    return apiClient.delete<{ deleted_count: number }>('/api/entries')
   },
   async getDiaryEntry(id: string) {
     return fromApiDiaryEntry(await apiClient.get<ApiDiaryEntry>(`/api/entries/${id}`))

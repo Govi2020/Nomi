@@ -29,11 +29,15 @@ class EntryCreate(BaseModel):
     title: str | None = None
     source: str = "text"
     audio_id: str | None = None
+    mood: str | None = Field(default=None, max_length=24)
+    energy: str | None = Field(default=None, max_length=24)
 
 
 class EntryUpdate(BaseModel):
     text: str | None = Field(default=None, min_length=0, max_length=200000)
     title: str | None = None
+    mood: str | None = Field(default=None, max_length=24)
+    energy: str | None = Field(default=None, max_length=24)
 
 
 class WritingFeedbackIn(BaseModel):
@@ -127,6 +131,26 @@ def entries(limit: int = Query(default=200, ge=1, le=1000), offset: int = Query(
     return db.list_entries(limit, offset)
 
 
+@app.delete("/api/entries")
+def delete_all_entries():
+    result = db.delete_all_entries()
+    audio_dir = config.AUDIO_DIR.resolve()
+    for audio_path in result["audio_paths"]:
+        path = Path(audio_path).resolve()
+        if path.parent != audio_dir or path.suffix.lower() != ".wav":
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Diary entries were deleted, but an audio file could not be removed: {exc}",
+            ) from exc
+    return {"deleted_count": result["deleted_count"]}
+
+
 @app.get("/api/entries/{entry_id}")
 def entry(entry_id: int):
     result = db.get_entry(entry_id)
@@ -142,14 +166,16 @@ async def create_entry(body: EntryCreate):
     audio_path = None
     if body.audio_id:
         audio_path = str(_audio_path(body.audio_id))
-    entry_id = db.create_entry(body.text, body.title, body.source, audio_path)
+    entry_id = db.create_entry(
+        body.text, body.title, body.source, audio_path, body.mood, body.energy
+    )
     organized = await organize.organize_entry(entry_id) if body.text.strip() else None
     follow_up = await insights.follow_up(entry_id) if body.text.strip() else ""
     return {"entry": organized or db.get_entry(entry_id), "follow_up": follow_up}
 
 @app.put("/api/entries/{entry_id}")
 async def update_entry(entry_id: int, body: EntryUpdate):
-    if body.text is None and body.title is None:
+    if body.text is None and body.title is None and body.mood is None and body.energy is None:
         result = db.get_entry(entry_id)
         if result is None:
             raise HTTPException(status_code=404, detail="entry not found")
@@ -157,7 +183,9 @@ async def update_entry(entry_id: int, body: EntryUpdate):
     previous = db.get_entry(entry_id)
     if previous is None:
         raise HTTPException(status_code=404, detail="entry not found")
-    if not db.update_entry(entry_id, text=body.text, title=body.title):
+    if not db.update_entry(
+        entry_id, text=body.text, title=body.title, mood=body.mood, energy=body.energy
+    ):
         raise HTTPException(status_code=404, detail="entry not found")
     result = db.get_entry(entry_id)
     if not previous["text"].strip() and result["text"].strip():

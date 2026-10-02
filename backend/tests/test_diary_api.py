@@ -18,8 +18,11 @@ class DiaryApiTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_data_dir = config.DATA_DIR
         self.original_db_path = config.DB_PATH
+        self.original_audio_dir = config.AUDIO_DIR
         config.DATA_DIR = Path(self.temp_dir.name)
         config.DB_PATH = config.DATA_DIR / "journal.db"
+        config.AUDIO_DIR = config.DATA_DIR / "audio"
+        config.AUDIO_DIR.mkdir()
         self.client_context = TestClient(app)
         self.client = self.client_context.__enter__()
 
@@ -27,6 +30,7 @@ class DiaryApiTests(unittest.TestCase):
         self.client_context.__exit__(None, None, None)
         config.DATA_DIR = self.original_data_dir
         config.DB_PATH = self.original_db_path
+        config.AUDIO_DIR = self.original_audio_dir
         self.temp_dir.cleanup()
 
     def test_entries_list_is_empty_without_saved_entries(self):
@@ -47,21 +51,47 @@ class DiaryApiTests(unittest.TestCase):
         ):
             created = self.client.post(
                 "/api/entries",
-                json={"text": "A real diary moment", "title": "Today"},
+                json={"text": "A real diary moment", "title": "Today", "mood": "Calm", "energy": "Low"},
             )
 
         self.assertEqual(created.status_code, 200, created.text)
         created_entry = created.json()["entry"]
         entry_id = created_entry["id"]
         self.assertEqual(created_entry["text"], "A real diary moment")
+        self.assertEqual(created_entry["mood"], "Calm")
+        self.assertEqual(created_entry["energy"], "Low")
 
         updated = self.client.put(
             f"/api/entries/{entry_id}",
-            json={"text": "Updated diary moment", "title": "Today, updated"},
+            json={"text": "Updated diary moment", "title": "Today, updated", "mood": "Hopeful", "energy": "High"},
         )
         self.assertEqual(updated.status_code, 200, updated.text)
         self.assertEqual(updated.json()["text"], "Updated diary moment")
+        self.assertEqual(updated.json()["mood"], "Hopeful")
+        self.assertEqual(updated.json()["energy"], "High")
         self.assertEqual(self.client.get("/api/entries").json()[0]["title"], "Today, updated")
+
+    def test_delete_all_entries_removes_diary_but_keeps_ask_chats(self):
+        audio_path = config.AUDIO_DIR / "recording.wav"
+        audio_path.write_bytes(b"safe test audio")
+        entry_id = db.create_entry("First diary note", "First", audio_path=str(audio_path))
+        db.set_entry_tags(entry_id, ["test-tag"])
+        db.set_entry_entities(entry_id, [{"name": "Test person", "type": "person"}])
+        db.create_entry("Second diary note", "Second")
+        chat = self.client.post("/api/ask/chats", json={}).json()
+
+        response = self.client.delete("/api/entries")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"deleted_count": 2})
+        self.assertEqual(self.client.get("/api/entries").json(), [])
+        self.assertEqual(self.client.get(f"/api/ask/chats/{chat['id']}").status_code, 200)
+        self.assertFalse(audio_path.exists())
+        with closing(db.connect()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0], 0)
+        empty = self.client.delete("/api/entries")
+        self.assertEqual(empty.json(), {"deleted_count": 0})
 
     def test_title_only_entry_is_processed_when_text_is_added(self):
         processed_ids = []
@@ -141,6 +171,49 @@ class DiaryApiTests(unittest.TestCase):
         self.assertEqual(first_history["turns"][0]["sources"][0]["id"], "42")
         self.assertEqual(second_history["turns"], [])
         self.assertEqual(first_history["chat"]["title"], "Remember this first thought")
+
+    def test_ask_ai_reflects_on_leading_emotional_questions_with_cited_entries(self):
+        entry_id = db.create_entry(
+            "Several last-minute changes at work left me tense and unable to switch off.",
+            "A difficult work week",
+        )
+        captured_messages = []
+
+        async def retrieve(_question):
+            return [entry_id], {entry_id: 0.9}
+
+        async def get_tools():
+            return []
+
+        async def chat_messages(messages, **_kwargs):
+            captured_messages.extend(messages)
+            return {
+                "content": (
+                    "I wonder if the repeated last-minute changes left you feeling pulled "
+                    f"in too many directions [E{entry_id}]. Maybe try naming one part you "
+                    "can influence today, if that feels useful."
+                ),
+                "tool_calls": [],
+            }
+
+        with patch.object(server.rag, "_retrieve", retrieve), patch.object(
+            server.rag.mcp_client, "get_tools", get_tools
+        ), patch.object(server.ollama_client, "chat_messages", chat_messages):
+            response = asyncio.run(
+                server.rag.answer_question("Why do I feel frustrated?", "Recall")
+            )
+
+        self.assertIn("I wonder if", response["answer"])
+        self.assertEqual([source["id"] for source in response["sources"]], [entry_id])
+        system_prompt = captured_messages[0]["content"]
+        self.assertIn("personal, reflective question", system_prompt)
+        self.assertIn("what the cited moments might suggest", system_prompt)
+        self.assertIn("possibility, not a diagnosis or certainty", system_prompt)
+        self.assertIn("one small, optional suggestion", system_prompt)
+        self.assertNotIn(
+            "personal, reflective question",
+            server.rag._mode_instructions("Recall", "What did I write yesterday?"),
+        )
 
     def test_ask_chat_can_import_existing_browser_history(self):
         created = self.client.post(

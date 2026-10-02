@@ -20,7 +20,7 @@ using the dated excerpts below. Rules:
 - Only cite entries you actually used — never cite every excerpt.
 - You may synthesize across entries, but never invent facts or dates not in the journal.
 - If the journal does not contain the answer, say so plainly and suggest what to journal about.
-Answer in a warm, attentive voice. Acknowledge the feeling or intent behind the question when it is clear, then answer directly and gently. Be receptive to corrections and follow-up questions. Keep it plain-text (no markdown headers), grounded in the journal, and avoid performative empathy or invented details."""
+Answer like a warm, thoughtful conversation partner. When the question is personal or emotional, reflect in the reply itself on what the cited entries might suggest and why, using tentative language such as "I wonder if" rather than stating a cause as fact. Acknowledge the feeling without diagnosing or overclaiming. When it fits, offer one small, low-pressure suggestion the user could try; do not turn every answer into advice. Invite the user to correct the interpretation or share more if they want. Keep it plain-text (no markdown headers), grounded in the journal, and avoid performative empathy or invented details."""
 
 SYSTEM_TOOLS = """You are a private journal assistant. You answer questions ONLY about what is in the user's own journal,
 using the read-only tools available to you.
@@ -44,7 +44,7 @@ Rules:
 - Answer conversationally, in your own words: summarize. Never paste raw entry text or tool JSON.
 - Never ask the user for more detail before searching - search first, then ask only if genuinely ambiguous.
 - If the journal does not contain the answer, say so plainly and suggest what to journal about.
-Answer in a warm, attentive voice. Acknowledge the feeling or intent behind the question when it is clear, then answer directly and gently. Be receptive to corrections and follow-up questions. Keep it plain-text (no markdown headers), grounded in tool results, and avoid performative empathy or invented details."""
+Answer like a warm, thoughtful conversation partner. When the question is personal or emotional, reflect in the reply itself on what the cited entries might suggest and why, using tentative language such as "I wonder if" rather than stating a cause as fact. Acknowledge the feeling without diagnosing or overclaiming. When it fits, offer one small, low-pressure suggestion the user could try; do not turn every answer into advice. Invite the user to correct the interpretation or share more if they want. Keep it plain-text (no markdown headers), grounded in tool results, and avoid performative empathy or invented details."""
 
 
 def _snippet(text, limit=700):
@@ -106,6 +106,26 @@ MODE_GUIDANCE = {
     "Plan": "Help turn the user's journal context into a practical, gentle next-step plan. Separate remembered priorities from suggestions.",
 }
 
+REFLECTIVE_QUESTION = re.compile(
+    r"^\s*(?:why\s+(?:do|does|did|am|are|was|were)\b|"
+    r"what\s+(?:makes|made|is making)\s+(?:me|you)\s+feel\b|"
+    r"what(?:'s| is)\s+(?:behind|causing)\s+(?:my|this)\s+"
+    r"(?:feeling|frustration|anxiety|sadness)\b)",
+    re.IGNORECASE,
+)
+
+
+def _mode_instructions(mode, question):
+    guidance = MODE_GUIDANCE.get(mode, MODE_GUIDANCE["Recall"])
+    if REFLECTIVE_QUESTION.search(question):
+        guidance += (
+            " This is a personal, reflective question: do more than list matching entries. "
+            "Gently explain what the cited moments might suggest about the feeling and why, "
+            "clearly marking that interpretation as a possibility, not a diagnosis or certainty. "
+            "Offer at most one small, optional suggestion if it is useful."
+        )
+    return "Mode: " + guidance
+
 
 def _history_messages(history):
     return [
@@ -117,7 +137,7 @@ def _history_messages(history):
 
 async def _answer_with_tools(question, tools, mode="Recall", history=None):
     messages = [
-        {"role": "system", "content": SYSTEM_TOOLS + "\n\nMode: " + MODE_GUIDANCE.get(mode, MODE_GUIDANCE["Recall"])},
+        {"role": "system", "content": SYSTEM_TOOLS + "\n\n" + _mode_instructions(mode, question)},
         *_history_messages(history),
         {"role": "user", "content": question},
     ]
@@ -208,7 +228,7 @@ async def _answer_fallback(question, mode="Recall", history=None):
         )
     prompt = "Journal excerpts:\n\n" + "\n\n".join(excerpts or ["(No relevant entries found.)"])
     messages = [
-        {"role": "system", "content": SYSTEM_RETRIEVAL + "\n\nMode: " + MODE_GUIDANCE.get(mode, MODE_GUIDANCE["Recall"])},
+        {"role": "system", "content": SYSTEM_RETRIEVAL + "\n\n" + _mode_instructions(mode, question)},
         *_history_messages(history),
         {"role": "user", "content": f"{prompt}\n\nQuestion: {question}"},
     ]

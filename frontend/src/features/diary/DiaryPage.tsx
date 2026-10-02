@@ -5,8 +5,9 @@ import { aiService } from '../../services/aiService'
 import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
 import { type AudioFrame, mergeOverlappingTranscript } from './transcript'
 import { PageHeading } from '../../components/PageHeading'
+import { energyOptions, moodOptions } from '../../services/userPreferences'
 
-export function DiaryPage({ diary, selected, onSelect, onSave, loadError }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string }) {
+export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaultMood, defaultEnergy, spellCheck, editorTextSize }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string; defaultMood: string; defaultEnergy: string; spellCheck: boolean; editorTextSize: number }) {
   const [search, setSearch] = useState('')
   const [attachment, setAttachment] = useState('')
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
@@ -290,7 +291,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError }: { di
     setFeedbackAction(null)
     setFeedbackKind(null)
     const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())
-    onSelect({ id: 'new', date, title: '', content: '', mood: 'Thoughtful', energy: 'Steady', topics: [], people: [], memoryIds: [] })
+    onSelect({ id: 'new', date, title: '', content: '', mood: defaultMood, energy: defaultEnergy, topics: [], people: [], memoryIds: [] })
     setAttachment('')
   }
   const updateEntry = (changes: Partial<DiaryEntry>) => {
@@ -351,7 +352,17 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError }: { di
   if (selected) return <> <section className="page-content diary-notebook">
     <button className="back-link diary-back-link" onClick={() => { saveRequestRef.current += 1; if (dictationActiveRef.current) stopDictation(); onSelect(null) }}><ChevronLeft size={15} /> All diary entries</button>
     <div className="notebook-heading"><div className="eyebrow">{selected.date.toUpperCase()}</div><input aria-label="Entry title" value={selected.title} onChange={event => updateEntry({ title: event.target.value })} placeholder="A day taking shape" maxLength={100} /><span className="notebook-save-state">{selected.id === 'new' ? 'DRAFT' : saveState === 'saving' ? 'SAVING…' : saveState === 'error' ? 'NOT SAVED' : 'SAVED IN YOUR DIARY'}</span></div>
-    <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck /></div>
+    <div className="notebook-entry-preferences">
+      <label>Feeling<select aria-label="Entry feeling" value={selected.mood || defaultMood} onChange={event => updateEntry({ mood: event.target.value })}>
+        {!moodOptions.includes(selected.mood) && selected.mood && <option value={selected.mood}>{selected.mood}</option>}
+        {moodOptions.map(option => <option key={option} value={option}>{option}</option>)}
+      </select></label>
+      <label>Energy<select aria-label="Entry energy" value={selected.energy || defaultEnergy} onChange={event => updateEntry({ energy: event.target.value })}>
+        {!energyOptions.includes(selected.energy) && selected.energy && <option value={selected.energy}>{selected.energy}</option>}
+        {energyOptions.map(option => <option key={option} value={option}>{option}</option>)}
+      </select></label>
+    </div>
+    <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck={spellCheck} style={{ fontSize: `${editorTextSize}px` }} /></div>
     {saveError && <p className="diary-save-error" role="alert">Could not save this entry: {saveError}</p>}
     {dictationMessage && <div className={`dictation-status ${dictating ? 'is-listening' : ''}`} role="status">{dictationMessage}</div>}
     {attachment && <div className="notebook-attachment"><Paperclip size={13} />{attachment}<button onClick={() => setAttachment('')} aria-label="Remove attachment"><X size={13} /></button></div>}

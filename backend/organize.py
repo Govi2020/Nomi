@@ -91,7 +91,12 @@ async def organize_entry(entry_id):
         organized = _sanitize({})
         organized["organize_error"] = str(exc)
     is_organized = not organized["organize_error"]
-    db.update_ai_fields(entry_id, organized["summary"], organized["mood"], is_organized)
+    db.update_ai_fields(
+        entry_id,
+        organized["summary"],
+        entry.get("mood") or organized["mood"],
+        is_organized,
+    )
     if organized["title"]:
         db.update_entry(entry_id, title=organized["title"], ai_fields_only=True)
     db.set_entry_tags(entry_id, organized["tags"])

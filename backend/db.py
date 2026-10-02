@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS entries (
   audio_path  TEXT,
   source      TEXT NOT NULL DEFAULT 'text',
   mood        TEXT,
+  energy      TEXT,
   organized   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS tags (
@@ -92,6 +93,9 @@ def init_db():
     config.ensure_dirs()
     with closing(connect()) as conn:
         conn.executescript(SCHEMA)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
+        if "energy" not in columns:
+            conn.execute("ALTER TABLE entries ADD COLUMN energy TEXT")
         conn.commit()
 
 
@@ -152,17 +156,17 @@ def get_entry(entry_id):
     return _entry_with_meta(entry_id)
 
 
-def create_entry(text, title=None, source="text", audio_path=None):
+def create_entry(text, title=None, source="text", audio_path=None, mood=None, energy=None):
     with closing(connect()) as conn:
         cur = conn.execute(
-            "INSERT INTO entries(text,title,source,audio_path) VALUES(?,?,?,?)",
-            (text, title, source, audio_path),
+            "INSERT INTO entries(text,title,source,audio_path,mood,energy) VALUES(?,?,?,?,?,?)",
+            (text, title, source, audio_path, mood, energy),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def update_entry(entry_id, text=None, title=None, ai_fields_only=False):
+def update_entry(entry_id, text=None, title=None, ai_fields_only=False, mood=None, energy=None):
     fields, values = [], []
     if not ai_fields_only:
         if text is not None:
@@ -171,6 +175,12 @@ def update_entry(entry_id, text=None, title=None, ai_fields_only=False):
     if title is not None:
         fields.append("title=?")
         values.append(title)
+    if mood is not None:
+        fields.append("mood=?")
+        values.append(mood)
+    if energy is not None:
+        fields.append("energy=?")
+        values.append(energy)
     if not fields:
         return get_entry(entry_id) is not None
     fields.append("updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')")
@@ -279,6 +289,23 @@ def delete_entry(entry_id):
         cur = conn.execute("DELETE FROM entries WHERE id=?", (entry_id,))
         conn.commit()
         return cur.rowcount > 0
+
+
+def delete_all_entries():
+    with closing(connect()) as conn:
+        audio_paths = [
+            row["audio_path"]
+            for row in conn.execute("SELECT audio_path FROM entries WHERE audio_path IS NOT NULL")
+        ]
+        count = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+        conn.execute("DELETE FROM entries")
+        conn.execute("DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM entry_tags WHERE tag_id=tags.id)")
+        conn.execute(
+            "DELETE FROM entities WHERE NOT EXISTS "
+            "(SELECT 1 FROM entry_entities WHERE entity_id=entities.id)"
+        )
+        conn.commit()
+        return {"deleted_count": count, "audio_paths": audio_paths}
 
 
 def get_entries_by_ids(ids):

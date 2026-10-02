@@ -345,3 +345,73 @@
 :root[data-theme="light"] .talk-voice-state.is-talking {
     color: #806438;
 }
+
+.talk-heading {
+    padding-top: 23px;
+}
+
+.talk-heading h1 {
+    font-family: inherit;
+    font-size: clamp(30px, 3.2vw, 38px);
+    font-weight: 500;
+    letter-spacing: -.8px;
+}
+
+.talk-heading p {
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.talk-presence {
+    width: min(100%, 360px);
+    min-height: 54px;
+    aspect-ratio: auto;
+    margin: 29px auto 12px;
+    padding: 13px 17px;
+    border-color: var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.talk-presence span {
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: 0;
+}
+
+.talk-presence.is-active {
+    border-color: var(--sage2);
+    box-shadow: none;
+    animation: none;
+}
+
+.talk-voice-state {
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: 11px;
+}
+
+.talk-status,
+.talk-turn p,
+.talk-empty p {
+    font-family: inherit;
+}
+
+.talk-mic {
+    box-shadow: none;
+    transition: background .14s, border-color .14s;
+}
+
+.talk-mic:hover {
+    transform: none;
+}
+
+.talk-transcript {
+    border-top-color: var(--line-soft);
+}
