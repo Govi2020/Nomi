@@ -1344,7 +1344,125 @@ button:disabled {
 }
 
 .ask-page {
-    max-width: 760px
+    max-width: 1100px
+}
+
+.ask-chat-layout {
+    display: grid;
+    grid-template-columns: 225px minmax(0, 760px);
+    justify-content: center;
+    align-items: start;
+    gap: 25px
+}
+
+.ask-chat-sidebar {
+    position: sticky;
+    top: 92px;
+    max-height: calc(100vh - 120px);
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel)
+}
+
+.ask-new-chat {
+    width: calc(100% - 20px);
+    min-height: 38px;
+    margin: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 11px;
+    cursor: pointer
+}
+
+.ask-new-chat:hover:not(:disabled) {
+    border-color: var(--sage2);
+    background: #ffffff08
+}
+
+.ask-chat-list {
+    display: grid;
+    gap: 3px;
+    max-height: calc(100vh - 185px);
+    overflow-y: auto;
+    padding: 0 7px 8px;
+    scrollbar-width: thin
+}
+
+.ask-chat-item {
+    min-width: 0;
+    width: 100%;
+    padding: 10px 8px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    text-align: left;
+    cursor: pointer
+}
+
+.ask-chat-item:hover:not(:disabled),
+.ask-chat-item.is-active {
+    border-color: var(--line);
+    background: #ffffff08;
+    color: var(--ink)
+}
+
+.ask-chat-item > svg {
+    flex: none;
+    margin-top: 2px
+}
+
+.ask-chat-item span {
+    min-width: 0;
+    display: block
+}
+
+.ask-chat-item b,
+.ask-chat-item small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.ask-chat-item b {
+    font-size: 11px;
+    font-weight: 600
+}
+
+.ask-chat-item small {
+    margin-top: 4px;
+    color: var(--quiet);
+    font-size: 9px
+}
+
+.ask-chat-list-empty,
+.ask-empty-state {
+    padding: 10px;
+    color: var(--quiet);
+    font: 12px/1.5 var(--serif)
+}
+
+.ask-chat-error {
+    margin: 0 auto 12px;
+    color: #e0b9a8;
+    font-size: 12px;
+    text-align: center
+}
+
+.ask-chat-main {
+    min-width: 0
 }
 
 .ask-heading {
@@ -1785,6 +1903,225 @@ button:disabled {
     color: #c7cabc
 }
 
+.timeline-review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px
+}
+
+.timeline-review-actions .filter-button {
+    min-width: 0;
+    justify-content: center;
+    white-space: nowrap;
+    cursor: pointer
+}
+
+.timeline-review-actions .filter-button[aria-expanded="true"] {
+    border-color: #78866e;
+    color: #d3d7c7
+}
+
+.timeline-review {
+    padding: 23px 26px;
+    margin: 0 0 28px;
+    border: 1px solid #3b4338;
+    border-left: 2px solid #b59a70;
+    background: linear-gradient(110deg, #22271f, #1b1f1a);
+    animation: fadein .2s ease both
+}
+
+.timeline-review-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px
+}
+
+.timeline-review-heading h2 {
+    margin: 6px 0 0;
+    color: #deded3;
+    font: 400 25px/1.2 var(--serif)
+}
+
+.timeline-review-close {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid #3d443a;
+    border-radius: 50%;
+    background: transparent;
+    color: #a9ae9f;
+    cursor: pointer
+}
+
+.timeline-review-summary {
+    max-width: 760px;
+    margin: 19px 0 11px;
+    color: #c0c3b7;
+    font: 15px/1.65 var(--serif)
+}
+
+.timeline-review-count {
+    margin: 0;
+    color: #858d7f;
+    font-size: 9px;
+    letter-spacing: .4px
+}
+
+.timeline-review-themes,
+.timeline-entry-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 13px
+}
+
+.timeline-review-themes span,
+.timeline-entry-meta span {
+    padding: 5px 8px;
+    border: 1px solid #424a3e;
+    border-radius: 20px;
+    color: #aeb7a2;
+    font-size: 9px
+}
+
+.timeline-review-highlights {
+    display: grid;
+    gap: 3px;
+    margin-top: 20px
+}
+
+.timeline-review-highlights .section-caption {
+    margin-bottom: 5px
+}
+
+.timeline-review-highlights button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    width: 100%;
+    padding: 10px 1px;
+    border: 0;
+    border-top: 1px solid #343b32;
+    background: transparent;
+    color: #899183;
+    text-align: left;
+    cursor: pointer
+}
+
+.timeline-review-highlights button span,
+.timeline-review-highlights button b,
+.timeline-review-highlights button small {
+    display: block;
+    min-width: 0
+}
+
+.timeline-review-highlights button b {
+    overflow: hidden;
+    color: #cbd0c2;
+    font-size: 10px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.timeline-review-highlights button small {
+    overflow: hidden;
+    margin-top: 4px;
+    color: #858d7f;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap
+}
+
+.timeline-review-status,
+.timeline-empty {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 76px;
+    color: #9ba292;
+    font: 13px/1.5 var(--serif)
+}
+
+.timeline-review-error,
+.timeline-error {
+    color: #dfa59b
+}
+
+.timeline-empty {
+    justify-content: center;
+    padding: 20px;
+    border-top: 1px solid #343a32;
+    border-bottom: 1px solid #343a32;
+    text-align: center
+}
+
+.timeline-day-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 22px 0 4px;
+    color: #c9ccbf;
+    font-size: 11px
+}
+
+.timeline-day-heading small {
+    color: #7f887a;
+    font-size: 9px
+}
+
+.timeline-card.is-highlight {
+    border-bottom-color: #55503f
+}
+
+.timeline-highlight-label {
+    display: inline-block;
+    margin-bottom: 5px;
+    color: #c0a477;
+    font-size: 8px;
+    letter-spacing: 1px
+}
+
+.timeline-entry-detail {
+    width: 100%;
+    padding: 0 0 3px
+}
+
+.timeline-entry-detail > p {
+    margin: 0;
+    color: #aeb2a5;
+    font: 13px/1.65 var(--serif);
+    white-space: pre-wrap
+}
+
+.timeline-entry-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px
+}
+
+.timeline-open-entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 7px 10px;
+    border: 1px solid #424a3e;
+    border-radius: 4px;
+    background: transparent;
+    color: #bdc6b3;
+    font-size: 9px;
+    cursor: pointer
+}
+
+.timeline-open-entry:hover {
+    border-color: #78866e
+}
+
 .insight-intro {
     display: flex;
     align-items: center;
@@ -1888,12 +2225,37 @@ button:disabled {
     margin-top: 13px
 }
 
-.insight-tags span {
+.insight-tags button {
     border: 1px solid #353c32;
     border-radius: 20px;
     padding: 4px 9px;
+    background: transparent;
     font-size: 8px;
     color: #8d9585
+}
+
+.insight-tags button:hover {
+    border-color: #69775e;
+    color: #d1d7c7
+}
+
+.insight-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 110px;
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px dashed #394036;
+    color: #a3a494;
+    font: 14px/1.6 var(--serif);
+    text-align: center
+}
+
+.insight-error {
+    border-color: #775c50;
+    color: #e0b9a8
 }
 
 .insight-footnote {
@@ -2360,6 +2722,7 @@ button:disabled {
 :root[data-theme="light"] .diary-note,
 :root[data-theme="light"] .diary-paper,
 :root[data-theme="light"] .ask-composer,
+:root[data-theme="light"] .ask-chat-sidebar,
 :root[data-theme="light"] .source-cards button,
 :root[data-theme="light"] .context-flow>div,
 :root[data-theme="light"] .insight-intro {
@@ -2450,7 +2813,7 @@ button:disabled {
 
 :root[data-theme="light"] .timeline-month,
 :root[data-theme="light"] .timeline-date,
-:root[data-theme="light"] .insight-tags span {
+:root[data-theme="light"] .insight-tags button {
     color: #65735d
 }
 
@@ -3047,6 +3410,21 @@ button:disabled {
 
     .ask-heading {
         padding-top: 18px
+    }
+
+    .ask-chat-layout {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px
+    }
+
+    .ask-chat-sidebar {
+        position: static;
+        max-height: 210px
+    }
+
+    .ask-chat-list {
+        max-height: 150px;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))
     }
 
     .ask-heading h1 {
@@ -4220,6 +4598,13 @@ button:disabled {
 .diary-library-empty p {
     font: 13px var(--serif);
     margin: 0
+}
+
+.diary-load-error,
+.diary-save-error {
+    color: #e0b9a8;
+    font-size: 12px;
+    line-height: 1.5
 }
 
 .diary-library-note {

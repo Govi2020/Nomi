@@ -6,14 +6,17 @@ import { preloadWhisper, transcribePcm } from '../../services/localTranscription
 import { type AudioFrame, mergeOverlappingTranscript } from './transcript'
 import { PageHeading } from '../../components/PageHeading'
 
-export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => void }) {
+export function DiaryPage({ diary, selected, onSelect, onSave, loadError }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string }) {
   const [search, setSearch] = useState('')
   const [attachment, setAttachment] = useState('')
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const [saveError, setSaveError] = useState('')
   const [feedback, setFeedback] = useState('')
   const [feedbackError, setFeedbackError] = useState('')
   const [feedbackAction, setFeedbackAction] = useState<'dig_deeper' | 'get_perspective' | null>(null)
   const [feedbackKind, setFeedbackKind] = useState<'dig_deeper' | 'get_perspective' | null>(null)
   const feedbackRequestRef = useRef(0)
+  const saveRequestRef = useRef(0)
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
   const selectedEntryRef = useRef(selected)
   selectedEntryRef.current = selected
@@ -35,13 +38,29 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
   const [dictating, setDictating] = useState(false)
   const [dictationMessage, setDictationMessage] = useState('')
 
+  const persistEntry = (entry: DiaryEntry) => {
+    const requestId = ++saveRequestRef.current
+    setSaveState('saving')
+    setSaveError('')
+    void onSave(entry).then(saved => {
+      if (requestId !== saveRequestRef.current) return
+      selectedEntryRef.current = saved
+      onSelect(saved)
+      setSaveState('saved')
+    }).catch(error => {
+      if (requestId !== saveRequestRef.current) return
+      setSaveState('error')
+      setSaveError(error instanceof Error ? error.message : 'Check the backend connection and try again.')
+    })
+  }
+
   const commitDictationDraft = () => {
     const current = selectedEntryRef.current
     if (!current || current.id !== 'new' || (!current.title.trim() && !current.content.trim())) return
     const saved = { ...current, id: `d${Date.now()}` }
     selectedEntryRef.current = saved
     onSelect(saved)
-    onSave(saved)
+    persistEntry(saved)
   }
 
   const appendDictationText = (text: string) => {
@@ -53,7 +72,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
     if (updated.id === 'new') updated.id = `d${Date.now()}`
     selectedEntryRef.current = updated
     onSelect(updated)
-    onSave(updated)
+    persistEntry(updated)
     requestAnimationFrame(() => {
       if (document.activeElement !== editorRef.current) return
       const cursor = updated.content.length
@@ -262,6 +281,9 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
     if (!selected && dictationActiveRef.current) stopDictation()
   }, [selected])
   const createEntry = () => {
+    saveRequestRef.current += 1
+    setSaveState('saved')
+    setSaveError('')
     feedbackRequestRef.current += 1
     setFeedback('')
     setFeedbackError('')
@@ -283,7 +305,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
     if (updated.id === 'new' && (updated.title.trim() || updated.content.trim())) updated.id = `d${Date.now()}`
     selectedEntryRef.current = updated
     onSelect(updated)
-    if (updated.id !== 'new') onSave(updated)
+    if (updated.id !== 'new') persistEntry(updated)
   }
   const addFormatting = (before: string, after = before) => {
     const editor = editorRef.current
@@ -327,9 +349,10 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
   }
 
   if (selected) return <> <section className="page-content diary-notebook">
-    <button className="back-link diary-back-link" onClick={() => { if (dictationActiveRef.current) stopDictation(); onSelect(null) }}><ChevronLeft size={15} /> All diary entries</button>
-    <div className="notebook-heading"><div className="eyebrow">{selected.date.toUpperCase()}</div><input aria-label="Entry title" value={selected.title} onChange={event => updateEntry({ title: event.target.value })} placeholder="A day taking shape" maxLength={100} /><span className="notebook-save-state">{selected.id === 'new' ? 'DRAFT' : 'SAVED IN YOUR DIARY'}</span></div>
+    <button className="back-link diary-back-link" onClick={() => { saveRequestRef.current += 1; if (dictationActiveRef.current) stopDictation(); onSelect(null) }}><ChevronLeft size={15} /> All diary entries</button>
+    <div className="notebook-heading"><div className="eyebrow">{selected.date.toUpperCase()}</div><input aria-label="Entry title" value={selected.title} onChange={event => updateEntry({ title: event.target.value })} placeholder="A day taking shape" maxLength={100} /><span className="notebook-save-state">{selected.id === 'new' ? 'DRAFT' : saveState === 'saving' ? 'SAVING…' : saveState === 'error' ? 'NOT SAVED' : 'SAVED IN YOUR DIARY'}</span></div>
     <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck /></div>
+    {saveError && <p className="diary-save-error" role="alert">Could not save this entry: {saveError}</p>}
     {dictationMessage && <div className={`dictation-status ${dictating ? 'is-listening' : ''}`} role="status">{dictationMessage}</div>}
     {attachment && <div className="notebook-attachment"><Paperclip size={13} />{attachment}<button onClick={() => setAttachment('')} aria-label="Remove attachment"><X size={13} /></button></div>}
 
@@ -350,9 +373,10 @@ export function DiaryPage({ diary, selected, onSelect, onSave }: { diary: DiaryE
     <PageHeading eyebrow="YOUR OWN WORDS, HELD GENTLY" title="Your diary" subtitle="A space for your thoughts, plans, and everything in between." />
     <button className="diary-new-entry" onClick={createEntry}><Plus size={19} /><span>New entry</span><ChevronRight size={16} /></button>
     <label className="diary-search"><Search size={15} /><input aria-label="Search entries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search entries" /><span>{filteredDiary.length} entries</span></label>
-    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <button className="diary-library-row" onClick={() => { onSelect(entry); setAttachment('') }} key={entry.id}>
+    {loadError && <p className="diary-load-error" role="alert">Could not load diary entries: {loadError}</p>}
+    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <button className="diary-library-row" onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry); setAttachment('') }} key={entry.id}>
       <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entry.title || 'Untitled entry'}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
-    </button>)}</div> : <div className="diary-library-empty"><div className="note-mark">“</div><h3>{search ? 'No entries found.' : 'Your diary is waiting.'}</h3><p>{search ? 'Try a different search.' : 'Start with one small moment from today.'}</p></div>}
+    </button>)}</div> : loadError ? null : <div className="diary-library-empty"><div className="note-mark">“</div><h3>{search ? 'No entries found.' : 'Your diary is waiting.'}</h3><p>{search ? 'Try a different search.' : 'Start with one small moment from today.'}</p></div>}
     <aside className="diary-library-note"><span>✳</span>These are your moments, in your own words.</aside>
   </section>
 }

@@ -1,4 +1,4 @@
-import type { DiaryEntry, Memory, TimelineEvent } from '../types'
+import type { DiaryEntry, Memory } from '../types'
 import { apiClient } from './apiClient'
 
 const memories: Memory[] = [
@@ -8,19 +8,58 @@ const memories: Memory[] = [
   { id: 'm4', content: 'I was frustrated by the prototype, then realized the problem was trying to solve every feature at once.', date: 'Sep 27 · 8:30 PM', topics: ['Hackathon', 'Frustration', 'Progress'], project: 'Memory', source: { kind: 'Diary entry', date: 'Sep 27', id: 'd2' }, importance: 0.81, confidence: 0.93 },
   { id: 'm5', content: 'Had a surprisingly good lunch with the team. We left with one clear next step instead of ten.', date: 'Sep 23 · 1:15 PM', topics: ['Friends', 'College'], people: ['Arun', 'Maya'], source: { kind: 'Voice recording', date: 'Sep 23', id: 'r3' }, importance: 0.58, confidence: 0.88 },
 ]
-const diary: DiaryEntry[] = [
-  { id: 'd1', date: 'Tuesday, September 30, 2026', title: 'A difficult but productive day', content: 'The day started with that familiar feeling of having too many tabs open—in my head and on my laptop. Arun and I sat down with coffee and talked through the onboarding flow. Instead of making the whole thing feel easier, he helped me see which part actually mattered today.\n\nBy late afternoon, the prototype had a shape. I still have a long list of things I want to add, but for the first time this week the list felt like possibility instead of pressure. I want to remember how much lighter the work gets when I let someone else look at it with me.', mood: 'Hopeful', energy: 'Steady', topics: ['Hackathon', 'Friendship', 'Progress'], people: ['Arun'], memoryIds: ['m2'] },
-  { id: 'd2', date: 'Sunday, September 27, 2026', title: 'When the list got too long', content: 'I felt frustrated looking at everything the project could become. I was trying to make every idea part of the first version. Taking a step back helped me see that one small, well-made flow could be enough to begin.', mood: 'Reflective', energy: 'Low', topics: ['Hackathon', 'Frustration'], people: [], memoryIds: ['m4'] },
-  { id: 'd3', date: 'Wednesday, September 23, 2026', title: 'Lunch without an agenda', content: 'A good lunch with the team, and a rare afternoon where the next step felt obvious. We laughed more than we planned, which might have been the useful part.', mood: 'Light', energy: 'Good', topics: ['Friends', 'College'], people: ['Arun', 'Maya'], memoryIds: ['m5'] },
-]
-const timeline: TimelineEvent[] = [
-  { id: 't1', date: 'OCT 1', title: 'A project starts to feel real', summary: 'Began shaping the AI journaling companion.', recordings: 1, memories: 2, people: ['Arun'], project: 'Memory' },
-  { id: 't2', date: 'SEP 30', title: 'The onboarding conversation', summary: 'Coffee with Arun made the next step clearer.', recordings: 2, memories: 3, people: ['Arun'], project: 'Memory' },
-  { id: 't3', date: 'SEP 28', title: 'A slower walk home', summary: 'A quiet moment after a full week at college.', recordings: 1, memories: 2, people: ['Rahul'], project: 'College' },
-  { id: 't4', date: 'SEP 27', title: 'Choosing what matters first', summary: 'Noticed the project had become too many things at once.', recordings: 1, memories: 2, people: [], project: 'Memory' },
-  { id: 't5', date: 'SEP 23', title: 'Lunch with the team', summary: 'A shared meal turned into one clear next step.', recordings: 1, memories: 2, people: ['Arun', 'Maya'], project: 'College' },
-]
 const delay = (ms = 220) => new Promise(resolve => setTimeout(resolve, ms))
+
+interface ApiDiaryEntry {
+  id: number
+  created_at: string
+  title: string | null
+  text: string
+  mood: string | null
+  tags: string[]
+  entities: { name: string }[]
+}
+
+const draftEntryIds = new Map<string, string>()
+let diarySaveQueue: Promise<void> = Promise.resolve()
+
+function fromApiDiaryEntry(entry: ApiDiaryEntry): DiaryEntry {
+  const createdAt = new Date(entry.created_at)
+  return {
+    id: String(entry.id),
+    date: new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(createdAt),
+    createdAt: entry.created_at,
+    title: entry.title ?? '',
+    content: entry.text,
+    mood: entry.mood ?? 'Thoughtful',
+    energy: 'Steady',
+    topics: entry.tags,
+    people: entry.entities.map(entity => entity.name),
+    memoryIds: [],
+  }
+}
+
+function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
+  const save = diarySaveQueue.then(async () => {
+    const draftId = entry.id
+    const entryId = /^\d+$/.test(draftId) ? draftId : draftEntryIds.get(draftId)
+    let saved: ApiDiaryEntry
+    if (entryId) {
+      saved = await apiClient.put<ApiDiaryEntry>(`/api/entries/${entryId}`, { text: entry.content, title: entry.title })
+    } else {
+      const response = await apiClient.post<{ entry: ApiDiaryEntry }>('/api/entries', {
+        text: entry.content,
+        title: entry.title,
+        source,
+      })
+      saved = response.entry
+      draftEntryIds.set(draftId, String(saved.id))
+    }
+    return fromApiDiaryEntry(saved)
+  })
+  diarySaveQueue = save.then(() => undefined, () => undefined)
+  return save
+}
 
 async function audioToWav(blob: Blob) {
   const context = new AudioContext()
@@ -67,9 +106,16 @@ async function transcribeAudio(blob: Blob) {
 export const memoryService = {
   async getMemories() { await delay(); return memories },
   async getMemory(id: string) { await delay(); return memories.find(item => item.id === id) ?? memories[0] },
-  async getDiary() { await delay(); return diary },
-  async getDiaryEntry(id: string) { await delay(); return diary.find(item => item.id === id) ?? diary[0] },
-  async getTimeline() { await delay(); return timeline },
+  async getDiary() {
+    const entries = await apiClient.get<ApiDiaryEntry[]>('/api/entries')
+    return entries.map(fromApiDiaryEntry)
+  },
+  async getDiaryEntry(id: string) {
+    return fromApiDiaryEntry(await apiClient.get<ApiDiaryEntry>(`/api/entries/${id}`))
+  },
+  async saveDiaryEntry(entry: DiaryEntry) {
+    return saveDiaryEntryApi(entry)
+  },
   async transcribeAudio(blob: Blob) {
     return transcribeAudio(blob)
   },
@@ -84,8 +130,8 @@ export const memoryService = {
 
     const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())
     const entry: DiaryEntry = { id: `d${Date.now()}`, date, title: 'Voice recording', content: transcript, mood: 'Thoughtful', energy: 'Steady', topics: [], people: [], memoryIds: [] }
-    diary.unshift(entry)
-    memories.unshift({ id: `m${Date.now()}`, content: transcript, date: 'Just now', topics: [], source: { kind: 'Voice recording', date: 'Today', id: entry.id }, importance: .8, confidence: .9 })
-    return entry
+    const saved = await saveDiaryEntryApi(entry, 'audio')
+    memories.unshift({ id: `m${Date.now()}`, content: transcript, date: 'Just now', topics: [], source: { kind: 'Voice recording', date: 'Today', id: saved.id }, importance: .8, confidence: .9 })
+    return saved
   },
 }

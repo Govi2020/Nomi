@@ -107,7 +107,8 @@ async def stream_chat_messages(messages, temperature=0.7):
         "model": config.CHAT_MODEL,
         "messages": messages,
         "stream": True,
-        "options": {"temperature": temperature},
+        "keep_alive": "10m",
+        "options": {"temperature": temperature, "num_predict": 160},
     }
     try:
         async with _get_client().stream("POST", "/api/chat", json=payload) as response:

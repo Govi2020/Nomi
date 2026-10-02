@@ -3,6 +3,7 @@ import { AudioLines, Mic, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
 import { streamTalk, type TalkMessage } from '../../services/talkService'
 import { WordReveal } from '../../components/WordReveal'
+import { selectWarmFemaleVoice } from './talkVoice'
 import './TalkToMePage.css'
 
 type Phase = 'idle' | 'loading' | 'listening' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error'
@@ -11,16 +12,25 @@ type Turn = TalkMessage & { id: number; complete?: boolean; memoryUsed?: boolean
 const MAX_TURN_MS = 35_000
 const SPEECH_THRESHOLD = 0.018
 const PREROLL_MS = 420
-const INTERIM_WINDOW_SECONDS = 2.2
-const INTERIM_STRIDE_SECONDS = 1.6
+const INTERIM_WINDOW_SECONDS = 1.8
+const INTERIM_STRIDE_SECONDS = 1.4
 const INTERIM_OVERLAP_SECONDS = 1.2
 
-function concatenateFrames(frames: Float32Array[]) {
-  const audio = new Float32Array(frames.reduce((total, frame) => total + frame.length, 0))
+function concatenateFrames(frames: Float32Array[], startSample = 0, endSample?: number) {
+  const totalSamples = frames.reduce((total, frame) => total + frame.length, 0)
+  const start = Math.max(0, Math.min(startSample, totalSamples))
+  const end = Math.max(start, Math.min(endSample ?? totalSamples, totalSamples))
+  const audio = new Float32Array(end - start)
   let offset = 0
   for (const frame of frames) {
-    audio.set(frame, offset)
+    const frameEnd = offset + frame.length
+    const copyStart = Math.max(start, offset)
+    const copyEnd = Math.min(end, frameEnd)
+    if (copyStart < copyEnd) {
+      audio.set(frame.subarray(copyStart - offset, copyEnd - offset), copyStart - start)
+    }
     offset += frame.length
+    if (offset >= end) break
   }
   return audio
 }
@@ -137,6 +147,7 @@ export function TalkToMePage() {
   const speakingTextRef = useRef('')
   const interruptedSpeechRef = useRef('')
   const voiceEnabledRef = useRef(true)
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const updatePhase = (next: Phase, nextStatus?: string) => {
@@ -147,6 +158,11 @@ export function TalkToMePage() {
 
   useEffect(() => {
     let active = true
+    const refreshVoices = () => {
+      voicesRef.current = window.speechSynthesis?.getVoices() ?? []
+    }
+    refreshVoices()
+    window.speechSynthesis?.addEventListener('voiceschanged', refreshVoices)
     updatePhase('loading', 'Loading Whisper Tiny on this device...')
     void preloadWhisper(message => {
       if (active) setStatus(message)
@@ -162,6 +178,7 @@ export function TalkToMePage() {
       listeningRef.current = false
       controllerRef.current?.abort()
       window.speechSynthesis?.cancel()
+      window.speechSynthesis?.removeEventListener('voiceschanged', refreshVoices)
       processorRef.current?.disconnect()
       sourceRef.current?.disconnect()
       muteRef.current?.disconnect()
@@ -221,11 +238,10 @@ export function TalkToMePage() {
     const utterance = new SpeechSynthesisUtterance(text)
     speakingTextRef.current = text
     utterance.lang = 'en-US'
-    utterance.rate = 0.96
-    const voices = window.speechSynthesis.getVoices()
-    utterance.voice = voices.find(voice => voice.lang.toLowerCase().startsWith('en') && /natural|aria|jenny|guy|zira/i.test(voice.name))
-      ?? voices.find(voice => voice.lang.toLowerCase().startsWith('en'))
-      ?? null
+    utterance.rate = 0.94
+    utterance.pitch = 1.02
+    voicesRef.current = window.speechSynthesis.getVoices()
+    utterance.voice = selectWarmFemaleVoice(voicesRef.current)
     utterance.onstart = () => {
       if (responseId !== responseIdRef.current) return
       speakingRef.current = true
@@ -324,7 +340,7 @@ export function TalkToMePage() {
     const end = utteranceSamplesRef.current
     if (end < interimNextAtRef.current) return
     const start = Math.max(0, interimLastEndRef.current - Math.round(sampleRateRef.current * INTERIM_OVERLAP_SECONDS))
-    const audio = concatenateFrames(utteranceRef.current).slice(start, end)
+    const audio = concatenateFrames(utteranceRef.current, start, end)
     if (audio.length < sampleRateRef.current) return
 
     setStatus('Recognizing your words...')
@@ -355,14 +371,21 @@ export function TalkToMePage() {
     updatePhase('transcribing', 'Making out what you said...')
     try {
       if (interimTaskRef.current) await interimTaskRef.current
-      const audio = concatenateFrames(utteranceRef.current)
-      let text = ''
-      try {
-        text = await transcribePcm(audio, sampleRateRef.current, message => setStatus(message))
-      } catch (error) {
-        if (!interimTextRef.current) throw error
+      const totalSamples = utteranceRef.current.reduce((total, frame) => total + frame.length, 0)
+      const overlapSamples = Math.round(sampleRateRef.current * INTERIM_OVERLAP_SECONDS)
+      const tailStart = interimTextRef.current
+        ? Math.max(0, interimLastEndRef.current - overlapSamples)
+        : 0
+      let tailText = ''
+      if (totalSamples - tailStart >= sampleRateRef.current * 0.35) {
+        const tail = concatenateFrames(utteranceRef.current, tailStart, totalSamples)
+        try {
+          tailText = await transcribePcm(tail, sampleRateRef.current, message => setStatus(message))
+        } catch (error) {
+          if (!interimTextRef.current) throw error
+        }
       }
-      const finalText = mergeTranscript('', text.trim() || interimTextRef.current.trim())
+      const finalText = mergeTranscript(interimTextRef.current, tailText.trim())
       utteranceRef.current = []
       utteranceSamplesRef.current = 0
       interimLastEndRef.current = 0

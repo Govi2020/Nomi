@@ -1,4 +1,6 @@
+import json
 import sqlite3
+import uuid
 from contextlib import closing
 
 import numpy as np
@@ -59,6 +61,23 @@ CREATE TABLE IF NOT EXISTS embeddings (
   model    TEXT NOT NULL,
   FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS ask_chats (
+  id         TEXT PRIMARY KEY,
+  title      TEXT NOT NULL DEFAULT 'New conversation',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS ask_turns (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  chat_id    TEXT NOT NULL,
+  question   TEXT NOT NULL,
+  answer     TEXT NOT NULL,
+  mode       TEXT NOT NULL,
+  sources    TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  FOREIGN KEY (chat_id) REFERENCES ask_chats(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ask_turns_chat ON ask_turns(chat_id, id);
 """
 
 
@@ -172,6 +191,71 @@ def update_ai_fields(entry_id, summary=None, mood=None, organized=False):
         )
         conn.commit()
         return cur.rowcount > 0
+
+
+def create_ask_chat():
+    chat_id = str(uuid.uuid4())
+    with closing(connect()) as conn:
+        conn.execute("INSERT INTO ask_chats(id) VALUES(?)", (chat_id,))
+        conn.commit()
+    return get_ask_chat(chat_id)
+
+
+def list_ask_chats():
+    with closing(connect()) as conn:
+        rows = conn.execute(
+            "SELECT c.id, c.title, c.created_at, c.updated_at, "
+            "(SELECT m.question FROM ask_turns m WHERE m.chat_id=c.id "
+            "ORDER BY m.id DESC LIMIT 1) AS last_message "
+            "FROM ask_chats c ORDER BY c.updated_at DESC, c.created_at DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_ask_chat(chat_id):
+    with closing(connect()) as conn:
+        row = conn.execute(
+            "SELECT id, title, created_at, updated_at FROM ask_chats WHERE id=?",
+            (chat_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        chat = dict(row)
+        messages = conn.execute(
+            "SELECT id, question, answer, mode, sources, created_at FROM ask_turns "
+            "WHERE chat_id=? ORDER BY id",
+            (chat_id,),
+        ).fetchall()
+        turns = [dict(message) for message in messages]
+        for turn in turns:
+            turn["sources"] = json.loads(turn["sources"])
+        return {"chat": chat, "turns": turns}
+
+
+def add_ask_turn(chat_id, question, answer, mode, sources):
+    with closing(connect()) as conn:
+        chat = conn.execute(
+            "SELECT title FROM ask_chats WHERE id=?", (chat_id,)
+        ).fetchone()
+        if chat is None:
+            return None
+        conn.execute(
+            "INSERT INTO ask_turns(chat_id, question, answer, mode, sources) VALUES(?,?,?,?,?)",
+            (chat_id, question, answer, mode, json.dumps(sources)),
+        )
+        if chat["title"] == "New conversation":
+            title = " ".join(question.split())[:60] or "New conversation"
+            conn.execute(
+                "UPDATE ask_chats SET title=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+                (title, chat_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE ask_chats SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+                (chat_id,),
+            )
+        conn.commit()
+    return True
 
 
 def search_entries(q, limit=50):
