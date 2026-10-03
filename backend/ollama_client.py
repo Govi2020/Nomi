@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 from . import config
@@ -98,6 +100,40 @@ async def chat_messages(messages, tools=None, temperature=0.4, json_mode=False, 
             }
         )
     return {"content": message.get("content", "") or "", "tool_calls": tool_calls}
+
+
+async def stream_chat_messages(messages, temperature=0.7):
+    payload = {
+        "model": config.CHAT_MODEL,
+        "messages": messages,
+        "stream": True,
+        "options": {"temperature": temperature},
+    }
+    try:
+        async with _get_client().stream("POST", "/api/chat", json=payload) as response:
+            if response.status_code >= 400:
+                body = (await response.aread()).decode(errors="replace")[:500]
+                if response.status_code == 404 and "model" in body.lower():
+                    raise RuntimeError(
+                        f"Ollama model '{config.CHAT_MODEL}' not found. Run: ollama pull {config.CHAT_MODEL}"
+                    )
+                raise RuntimeError(f"Ollama error {response.status_code}: {body}")
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if chunk.get("error"):
+                    raise RuntimeError(str(chunk["error"]))
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield content
+                if chunk.get("done"):
+                    break
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not reach Ollama ({config.OLLAMA_HOST}). Is it running? ({exc})") from exc
 
 
 async def embed(text):
