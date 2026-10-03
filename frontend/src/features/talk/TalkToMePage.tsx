@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { AudioLines, Mic, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { talkTranscriptionService } from '../../services/talkTranscriptionService'
+import { generateKokoroSpeech, preloadKokoro } from '../../services/kokoroTtsService'
 import { streamTalk, type TalkMessage } from '../../services/talkService'
 import { WordReveal } from '../../components/WordReveal'
-import { selectWarmFemaleVoice } from './talkVoice'
 import './TalkToMePage.css'
 
 type Phase = 'idle' | 'loading' | 'listening' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error'
@@ -107,7 +107,7 @@ function isLikelySpeechEcho(recognized: string, spoken: string) {
 export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }: { voiceReplies: boolean; speechRate: number; onVoiceRepliesChange: (enabled: boolean) => void }) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [phase, setPhase] = useState<Phase>('idle')
-  const [status, setStatus] = useState('Your voice stays on this device.')
+  const [status, setStatus] = useState('Preparing your voice space...')
   const [liveDraft, setLiveDraft] = useState('')
   const [voiceEnabled, setVoiceEnabled] = useState(voiceReplies)
   const [modelReady, setModelReady] = useState(false)
@@ -143,14 +143,17 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
   const responseDoneRef = useRef(false)
   const speechQueueRef = useRef<string[]>([])
   const speechPendingRef = useRef('')
+  const speechPlaybackIdRef = useRef(0)
+  const speechAudioRef = useRef<HTMLAudioElement | null>(null)
+  const speechObjectUrlRef = useRef<string | null>(null)
   const speakingRef = useRef(false)
+  const speechFailedRef = useRef(false)
   const speakingTextRef = useRef('')
   const interruptedSpeechRef = useRef('')
   const voiceEnabledRef = useRef(voiceReplies)
   const speechRateRef = useRef(speechRate)
   voiceEnabledRef.current = voiceReplies
   speechRateRef.current = speechRate
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const updatePhase = (next: Phase, nextStatus?: string) => {
@@ -159,13 +162,23 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     if (nextStatus) setStatus(nextStatus)
   }
 
+  const stopSpeechPlayback = () => {
+    const audio = speechAudioRef.current
+    speechAudioRef.current = null
+    if (audio) {
+      audio.onended = null
+      audio.onerror = null
+      audio.pause()
+      audio.removeAttribute('src')
+    }
+    if (speechObjectUrlRef.current) {
+      URL.revokeObjectURL(speechObjectUrlRef.current)
+      speechObjectUrlRef.current = null
+    }
+  }
+
   useEffect(() => {
     let active = true
-    const refreshVoices = () => {
-      voicesRef.current = window.speechSynthesis?.getVoices() ?? []
-    }
-    refreshVoices()
-    window.speechSynthesis?.addEventListener('voiceschanged', refreshVoices)
     updatePhase('loading', 'Preparing Parakeet TDT on the configured backend...')
     void talkTranscriptionService.prepare(message => {
       if (active) setStatus(message)
@@ -184,8 +197,8 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       active = false
       listeningRef.current = false
       controllerRef.current?.abort()
-      window.speechSynthesis?.cancel()
-      window.speechSynthesis?.removeEventListener('voiceschanged', refreshVoices)
+      speechPlaybackIdRef.current += 1
+      stopSpeechPlayback()
       processorRef.current?.disconnect()
       sourceRef.current?.disconnect()
       muteRef.current?.disconnect()
@@ -193,6 +206,21 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       void contextRef.current?.close()
     }
   }, [])
+
+  useEffect(() => {
+    if (!voiceReplies) return
+    let active = true
+    void preloadKokoro(message => {
+      if (active) setStatus(message)
+    }).catch(error => {
+      if (active) setStatus(error instanceof Error
+        ? `Kokoro TTS is unavailable: ${error.message}`
+        : 'Kokoro TTS is unavailable.')
+    })
+    return () => {
+      active = false
+    }
+  }, [voiceReplies])
 
   useEffect(() => {
     turnsRef.current = turns
@@ -212,7 +240,8 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     responseIdRef.current += 1
     controllerRef.current?.abort()
     controllerRef.current = null
-    window.speechSynthesis?.cancel()
+    speechPlaybackIdRef.current += 1
+    stopSpeechPlayback()
     speechQueueRef.current = []
     speechPendingRef.current = ''
     speakingRef.current = false
@@ -232,8 +261,8 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     updatePhase('recording', 'I’m listening. Go ahead.')
   }
 
-  const speakNext = (responseId: number) => {
-    if (responseId !== responseIdRef.current || speakingRef.current) return
+  const speakNext = (responseId: number, playbackId = speechPlaybackIdRef.current) => {
+    if (responseId !== responseIdRef.current || playbackId !== speechPlaybackIdRef.current || speakingRef.current) return
     const text = speechQueueRef.current.shift()
     if (!text) {
       if (responseDoneRef.current) {
@@ -242,37 +271,64 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       }
       return
     }
-    const utterance = new SpeechSynthesisUtterance(text)
-    speakingTextRef.current = text
-    utterance.lang = 'en-US'
-    utterance.rate = speechRateRef.current
-    utterance.pitch = 1.02
-    voicesRef.current = window.speechSynthesis.getVoices()
-    utterance.voice = selectWarmFemaleVoice(voicesRef.current)
-    utterance.onstart = () => {
-      if (responseId !== responseIdRef.current) return
-      speakingRef.current = true
-      updatePhase('speaking', 'I’m with you. You can interrupt me any time.')
-    }
-    utterance.onend = () => {
-      if (responseId !== responseIdRef.current) return
-      speakingRef.current = false
-      speakingTextRef.current = ''
-      speakNext(responseId)
-    }
-    utterance.onerror = () => {
-      if (responseId !== responseIdRef.current) return
-      speakingRef.current = false
-      speakingTextRef.current = ''
-      speakNext(responseId)
-    }
     speakingRef.current = true
-    updatePhase('speaking', 'I’m with you. You can interrupt me any time.')
-    window.speechSynthesis.speak(utterance)
+    updatePhase('speaking', 'Preparing my voice...')
+    void generateKokoroSpeech(text, speechRateRef.current, message => setStatus(message)).then(blob => {
+      if (responseId !== responseIdRef.current || playbackId !== speechPlaybackIdRef.current) return
+      const objectUrl = URL.createObjectURL(blob)
+      const audio = new Audio(objectUrl)
+      speechAudioRef.current = audio
+      speechObjectUrlRef.current = objectUrl
+      speakingTextRef.current = text
+      audio.onended = () => {
+        if (audio !== speechAudioRef.current) return
+        stopSpeechPlayback()
+        if (responseId !== responseIdRef.current || playbackId !== speechPlaybackIdRef.current) return
+        speakingRef.current = false
+        speakingTextRef.current = ''
+        speakNext(responseId, playbackId)
+      }
+      audio.onerror = () => {
+        if (audio !== speechAudioRef.current) return
+        speechFailedRef.current = true
+        speechQueueRef.current = []
+        speechPendingRef.current = ''
+        responseDoneRef.current = true
+        stopSpeechPlayback()
+        speakingRef.current = false
+        speakingTextRef.current = ''
+        updatePhase('error', 'Kokoro could not play the spoken reply. You can still read it in the conversation.')
+      }
+      updatePhase('speaking', 'I’m with you. You can interrupt me any time.')
+      void audio.play().catch(error => {
+        if (audio !== speechAudioRef.current) return
+        speechFailedRef.current = true
+        speechQueueRef.current = []
+        speechPendingRef.current = ''
+        responseDoneRef.current = true
+        stopSpeechPlayback()
+        speakingRef.current = false
+        speakingTextRef.current = ''
+        updatePhase('error', error instanceof Error
+          ? `Kokoro could not start audio playback: ${error.message}`
+          : 'Kokoro could not start audio playback. You can still read the reply.')
+      })
+    }).catch(error => {
+      if (responseId !== responseIdRef.current || playbackId !== speechPlaybackIdRef.current) return
+      speechFailedRef.current = true
+      speechQueueRef.current = []
+      speechPendingRef.current = ''
+      responseDoneRef.current = true
+      speakingRef.current = false
+      speakingTextRef.current = ''
+      updatePhase('error', error instanceof Error
+        ? `Kokoro could not synthesize the spoken reply: ${error.message}`
+        : 'Kokoro could not synthesize the spoken reply. You can still read it.')
+    })
   }
 
   const enqueueSpeech = (text: string, responseId: number) => {
-    if (!voiceEnabledRef.current || !('speechSynthesis' in window)) return
+    if (!voiceEnabledRef.current || speechFailedRef.current) return
     speechPendingRef.current += text
     const parsed = extractSentences(speechPendingRef.current)
     speechPendingRef.current = parsed.remaining
@@ -290,6 +346,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     assistantIdRef.current = assistantTurn.id
     const responseId = ++responseIdRef.current
     responseDoneRef.current = false
+    speechFailedRef.current = false
     speechQueueRef.current = []
     speechPendingRef.current = ''
     const controller = new AbortController()
@@ -320,7 +377,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
               speakNext(responseId)
             }
             responseDoneRef.current = true
-            if (!speakingRef.current && !speechQueueRef.current.length) {
+            if (!speakingRef.current && !speechQueueRef.current.length && !speechFailedRef.current) {
               preRollRef.current = []
               updateReadyPhase()
             }
@@ -595,7 +652,8 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     responseIdRef.current += 1
     controllerRef.current?.abort()
     controllerRef.current = null
-    window.speechSynthesis?.cancel()
+    speechPlaybackIdRef.current += 1
+    stopSpeechPlayback()
     speechQueueRef.current = []
     speechPendingRef.current = ''
     speakingRef.current = false
@@ -621,7 +679,8 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     setVoiceEnabled(next)
     onVoiceRepliesChange(next)
     if (!next) {
-      window.speechSynthesis?.cancel()
+      speechPlaybackIdRef.current += 1
+      stopSpeechPlayback()
       speechQueueRef.current = []
       speechPendingRef.current = ''
       speakingRef.current = false
@@ -629,15 +688,15 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       if (phaseRef.current === 'speaking') {
         updatePhase(listeningRef.current ? 'listening' : 'idle', 'Voice replies are muted. I’m still here with you.')
       }
-
-      useEffect(() => {
-        setVoiceEnabled(voiceReplies)
-        voiceEnabledRef.current = voiceReplies
-      }, [voiceReplies])
     } else {
       setStatus('Voice replies are on.')
     }
   }
+
+  useEffect(() => {
+    setVoiceEnabled(voiceReplies)
+    voiceEnabledRef.current = voiceReplies
+  }, [voiceReplies])
 
   const statusLabel = phase === 'loading' ? 'Preparing your private voice space'
     : phase === 'listening' ? 'Listening'
@@ -725,7 +784,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
         <button className="talk-icon-button" onClick={clearConversation} aria-label="Clear conversation" title="Clear conversation"><RotateCcw size={17} /></button>
       </div>
     </div>
-    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Talk audio is sent to your configured backend for Parakeet TDT transcription. The model downloads from Hugging Face there on first use.</span></div>
+    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Speech input is sent to your configured backend for Parakeet TDT transcription. Spoken replies use Kokoro in this browser; the model downloads from Hugging Face on first use.</span></div>
     <div className="talk-transcript" ref={scrollRef} aria-live="polite" aria-label="Conversation">
       {turns.map(turn => <article className={`talk-turn ${turn.role === 'assistant' ? 'assistant-turn' : 'user-turn'}`} key={turn.id}>
         <span className="talk-turn-label">{turn.role === 'assistant' ? 'MEMORY' : 'YOU'}{turn.memoryUsed && <small>REMEMBERED</small>}{turn.interrupted && <small>INTERRUPTED</small>}</span>

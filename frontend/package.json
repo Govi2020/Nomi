@@ -12,6 +12,7 @@
     "@huggingface/transformers": "^3.8.1",
     "@tailwindcss/vite": "^4.1.0",
     "@vitejs/plugin-react": "latest",
+    "kokoro-js": "^1.2.1",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
