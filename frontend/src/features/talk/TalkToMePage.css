@@ -133,6 +133,8 @@
     color: #171b16;
     display: grid;
     place-items: center;
+    touch-action: none;
+    user-select: none;
     transition: transform .16s, background .16s, box-shadow .16s
 }
 
@@ -307,4 +309,39 @@
     .talk-heading h1 { font-size: 36px }
     .talk-presence { width: 132px; margin-top: 27px }
     .talk-transcript { max-height: 38vh }
+}
+
+.talk-voice-state {
+    width: fit-content;
+    margin: 0 auto 8px;
+    padding: 6px 11px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    background: var(--panel);
+    font-size: 10px;
+    letter-spacing: .15px;
+    transition: color .2s, border-color .2s, background .2s
+}
+
+.talk-voice-state.is-enabled {
+    color: #aab99b;
+    border-color: #647257;
+}
+
+.talk-voice-state.is-muted {
+    color: var(--quiet);
+}
+
+.talk-voice-state.is-talking {
+    color: #e0c992;
+    border-color: #897c5e;
+}
+
+:root[data-theme="light"] .talk-voice-state.is-enabled {
+    color: #536748;
+}
+
+:root[data-theme="light"] .talk-voice-state.is-talking {
+    color: #806438;
 }

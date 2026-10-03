@@ -3,6 +3,7 @@ import { AudioLines, CalendarDays, Check, CircleHelp, Compass, Feather, FolderKa
 import type { DiaryEntry, Memory, Page, TimelineEvent } from './types'
 import { memoryService } from './services/memoryService'
 import { aiService } from './services/aiService'
+import type { AskTurn } from './services/aiService'
 import { AskPage } from './features/ask/AskPage'
 import { DiaryPage } from './features/diary/DiaryPage'
 import { HomePage } from './features/home/HomePage'
@@ -27,14 +28,14 @@ export default function App() {
   const [selectedDiary, setSelectedDiary] = useState<DiaryEntry | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => window.localStorage.getItem('memory-theme') === 'light' ? 'light' : 'dark')
   const [query, setQuery] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [sources, setSources] = useState<{ kind: string; date: string; id: string }[]>([])
+  const [askTurns, setAskTurns] = useState<AskTurn[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem('memory-ask-history') ?? '[]') as AskTurn[] } catch { return [] }
+  })
   const [asking, setAsking] = useState(false)
-  const [mode, setMode] = useState('Recall')
+  const [mode, setMode] = useState<'Recall' | 'Reflect' | 'Plan' | 'Search' | 'General'>('Recall')
   const [contextOpen, setContextOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [mobileNav, setMobileNav] = useState(false)
-  const [queryError, setQueryError] = useState(false)
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function App() {
     memoryService.getDiary().then(setDiary)
     memoryService.getTimeline().then(setTimeline)
   }, [])
+  useEffect(() => { window.localStorage.setItem('memory-ask-history', JSON.stringify(askTurns)) }, [askTurns])
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     window.localStorage.setItem('memory-theme', theme)
@@ -50,7 +52,22 @@ export default function App() {
   useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 30_000); return () => window.clearInterval(id) }, [])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2500); return () => window.clearTimeout(id) }, [toast])
   const navigate = (next: Page) => { setPage(next); setSelectedMemory(null); setSelectedDiary(null); setMobileNav(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const ask = async (value = query) => { if (!value.trim()) { setToast('Add a question to begin.'); return } setQuery(value); setAnswer(''); setAsking(true); setQueryError(false); try { const result = await aiService.ask(value); setAnswer(result.answer); setSources(result.sources) } catch { setQueryError(true) } finally { setAsking(false) } }
+  const ask = async (value = query) => {
+    if (asking) return
+    const question = value.trim()
+    if (!question) { setToast('Add a question to begin.'); return }
+    setQuery('')
+    setAsking(true)
+    const history = askTurns.filter(turn => !turn.error)
+    const pending: AskTurn = { question, answer: '', mode, sources: [] }
+    setAskTurns(current => [...current, pending])
+    try {
+      const result = await aiService.ask(question, mode, history)
+      setAskTurns(current => current.map((turn, index) => index === current.length - 1 ? { ...turn, answer: result.answer, sources: result.sources } : turn))
+    } catch {
+      setAskTurns(current => current.map((turn, index) => index === current.length - 1 ? { ...turn, error: true } : turn))
+    } finally { setAsking(false) }
+  }
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileNav ? 'sidebar-open' : ''}`}>
@@ -66,7 +83,7 @@ export default function App() {
       {page === 'Home' && <HomePage now={now} diary={diary} onNavigate={navigate} onNewEntry={() => { const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date()); navigate('Diary'); setSelectedDiary({ id: 'new', date, title: '', content: '', mood: 'Thoughtful', energy: 'Steady', topics: [], people: [], memoryIds: [] }) }} memories={memories} onOpenMemory={setSelectedMemory} onOpenDiary={entry => { navigate('Diary'); setSelectedDiary(entry) }} />}
       {page === 'Diary' && <DiaryPage diary={diary} selected={selectedDiary} onSelect={setSelectedDiary} onSave={saveDiaryEntry} />}
       {page === 'Talk to Me' && <TalkToMePage />}
-      {page === 'Ask AI' && <AskPage query={query} setQuery={setQuery} onAsk={ask} answer={answer} sources={sources} asking={asking} mode={mode} setMode={setMode} contextOpen={contextOpen} setContextOpen={setContextOpen} onOpenSource={source => { if (source.kind === 'Memory') { const found = memories.find(item => item.id === source.id); if (found) setSelectedMemory(found) } else if (source.kind === 'Diary entry') { setSelectedDiary(diary.find(entry => entry.id === source.id) ?? diary[0]); setPage('Diary') } else setPage('Timeline') }} error={queryError} />}
+      {page === 'Ask AI' && <AskPage query={query} setQuery={setQuery} onAsk={ask} turns={askTurns} asking={asking} mode={mode} setMode={setMode} contextOpen={contextOpen} setContextOpen={setContextOpen} onOpenSource={source => { if (source.kind === 'Memory') { const found = memories.find(item => item.id === source.id); if (found) setSelectedMemory(found) } else if (source.kind === 'Diary entry') { setSelectedDiary(diary.find(entry => entry.id === source.id) ?? diary[0]); setPage('Diary') } else setPage('Timeline') }} />}
       {page === 'Timeline' && <TimelinePage events={timeline} />}
       {page === 'Insights' && <InsightsPage />}
       {['People', 'Projects', 'Tasks', 'Settings'].includes(page) && <SupportPage page={page} theme={theme} onThemeChange={setTheme} />}

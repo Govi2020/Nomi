@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { AudioLines, Mic, MicOff, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import { AudioLines, Mic, RotateCcw, Volume2, VolumeX } from 'lucide-react'
 import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
 import { streamTalk, type TalkMessage } from '../../services/talkService'
+import { WordReveal } from '../../components/WordReveal'
 import './TalkToMePage.css'
 
 type Phase = 'idle' | 'loading' | 'listening' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error'
 type Turn = TalkMessage & { id: number; complete?: boolean; memoryUsed?: boolean; interrupted?: boolean }
 
-const SILENCE_MS = 900
 const MAX_TURN_MS = 35_000
 const SPEECH_THRESHOLD = 0.018
 const PREROLL_MS = 420
@@ -45,19 +45,53 @@ function extractSentences(buffer: string) {
 }
 
 function mergeTranscript(current: string, next: string) {
-  const existing = current.trim().split(/\s+/).filter(Boolean)
-  const incoming = next.trim().split(/\s+/).filter(Boolean)
+  const collapseRepeatedPhrases = (value: string) => {
+    const words = value.trim().split(/\s+/).filter(Boolean)
+    const normalize = (word: string) => word.toLocaleLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
+
+    // Whisper can repeat a phrase inside a single result as well as across
+    // overlapping windows. Collapse adjacent repeats of four or more words.
+    for (let length = Math.min(Math.floor(words.length / 2), 32); length >= 4; length--) {
+      for (let start = 0; start + length * 2 <= words.length; start++) {
+        const first = words.slice(start, start + length).map(normalize)
+        const second = words.slice(start + length, start + length * 2).map(normalize)
+        if (first.every((word, index) => word && word === second[index])) {
+          words.splice(start + length, length)
+          return collapseRepeatedPhrases(words.join(' '))
+        }
+      }
+    }
+    return words.join(' ')
+  }
+
+  const cleanCurrent = collapseRepeatedPhrases(current)
+  const cleanNext = collapseRepeatedPhrases(next)
+  const existing = cleanCurrent.trim().split(/\s+/).filter(Boolean)
+  const incoming = cleanNext.trim().split(/\s+/).filter(Boolean)
   const normalize = (word: string) => word.toLocaleLowerCase().replace(/[^\p{L}\p{N}']/gu, '')
-  for (let length = Math.min(existing.length, incoming.length, 18); length > 0; length--) {
+  for (let length = Math.min(existing.length, incoming.length, 32); length > 0; length--) {
     const left = existing.slice(-length).map(normalize)
     const right = incoming.slice(0, length).map(normalize)
     if (left.every((word, index) => word && word === right[index])) {
       const addition = incoming.slice(length).join(' ')
-      return addition ? `${current}${current && !/[\s\n]$/.test(current) ? ' ' : ''}${addition}` : current
+      const merged = addition ? `${cleanCurrent}${cleanCurrent && !/[\s\n]$/.test(cleanCurrent) ? ' ' : ''}${addition}` : cleanCurrent
+      return collapseRepeatedPhrases(merged)
     }
   }
   const addition = incoming.join(' ')
-  return addition ? `${current}${current && !/[\s\n]$/.test(current) ? ' ' : ''}${addition}` : current
+  const merged = addition ? `${cleanCurrent}${cleanCurrent && !/[\s\n]$/.test(cleanCurrent) ? ' ' : ''}${addition}` : cleanCurrent
+  return collapseRepeatedPhrases(merged)
+}
+
+function isLikelySpeechEcho(recognized: string, spoken: string) {
+  const normalize = (value: string) => value.toLocaleLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []
+  const recognizedWords = normalize(recognized)
+  const spokenWords = normalize(spoken)
+  if (recognizedWords.length < 4 || spokenWords.length < 4) return false
+
+  const phrase = recognizedWords.join(' ')
+  const spokenText = spokenWords.join(' ')
+  return spokenText.includes(phrase) || phrase.includes(spokenText)
 }
 
 export function TalkToMePage() {
@@ -67,6 +101,7 @@ export function TalkToMePage() {
   const [liveDraft, setLiveDraft] = useState('')
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [modelReady, setModelReady] = useState(false)
+  const [pushHeld, setPushHeld] = useState(false)
   const streamRef = useRef<MediaStream | null>(null)
   const contextRef = useRef<AudioContext | null>(null)
   const processorRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null)
@@ -75,6 +110,10 @@ export function TalkToMePage() {
   const sampleRateRef = useRef(16_000)
   const phaseRef = useRef<Phase>('idle')
   const listeningRef = useRef(false)
+  const pushHeldRef = useRef(false)
+  const spacePushActiveRef = useRef(false)
+  const microphoneStartingRef = useRef(false)
+  const pushHandlersRef = useRef({ press: () => {}, release: () => {} })
   const utteranceRef = useRef<Float32Array[]>([])
   const preRollRef = useRef<Float32Array[]>([])
   const utteranceSamplesRef = useRef(0)
@@ -95,6 +134,8 @@ export function TalkToMePage() {
   const speechQueueRef = useRef<string[]>([])
   const speechPendingRef = useRef('')
   const speakingRef = useRef(false)
+  const speakingTextRef = useRef('')
+  const interruptedSpeechRef = useRef('')
   const voiceEnabledRef = useRef(true)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -141,11 +182,13 @@ export function TalkToMePage() {
   }
 
   const listenForBargeIn = () => {
-    if (!voiceEnabledRef.current || !window.speechSynthesis) return
+    if (!listeningRef.current) return
+    interruptedSpeechRef.current = speakingTextRef.current
+    speakingTextRef.current = ''
     responseIdRef.current += 1
     controllerRef.current?.abort()
     controllerRef.current = null
-    window.speechSynthesis.cancel()
+    window.speechSynthesis?.cancel()
     speechQueueRef.current = []
     speechPendingRef.current = ''
     speakingRef.current = false
@@ -171,11 +214,12 @@ export function TalkToMePage() {
     if (!text) {
       if (responseDoneRef.current) {
         preRollRef.current = []
-        updatePhase('listening', 'I’m here. Take your time.')
+        updateReadyPhase()
       }
       return
     }
     const utterance = new SpeechSynthesisUtterance(text)
+    speakingTextRef.current = text
     utterance.lang = 'en-US'
     utterance.rate = 0.96
     const voices = window.speechSynthesis.getVoices()
@@ -190,11 +234,13 @@ export function TalkToMePage() {
     utterance.onend = () => {
       if (responseId !== responseIdRef.current) return
       speakingRef.current = false
+      speakingTextRef.current = ''
       speakNext(responseId)
     }
     utterance.onerror = () => {
       if (responseId !== responseIdRef.current) return
       speakingRef.current = false
+      speakingTextRef.current = ''
       speakNext(responseId)
     }
     speakingRef.current = true
@@ -253,7 +299,7 @@ export function TalkToMePage() {
             responseDoneRef.current = true
             if (!speakingRef.current && !speechQueueRef.current.length) {
               preRollRef.current = []
-              updatePhase('listening', 'I’m here. Take your time.')
+              updateReadyPhase()
             }
           } else if (event.type === 'error') {
             const current = turnsRef.current.find(turn => turn.id === assistantTurn.id)
@@ -316,19 +362,61 @@ export function TalkToMePage() {
       } catch (error) {
         if (!interimTextRef.current) throw error
       }
-      const finalText = text.trim() || interimTextRef.current.trim()
+      const finalText = mergeTranscript('', text.trim() || interimTextRef.current.trim())
       utteranceRef.current = []
       utteranceSamplesRef.current = 0
       interimLastEndRef.current = 0
       interimNextAtRef.current = 0
       interimTextRef.current = ''
       setLiveDraft('')
+      const interruptedSpeech = interruptedSpeechRef.current
+      interruptedSpeechRef.current = ''
+      if (isLikelySpeechEcho(finalText, interruptedSpeech)) {
+        updateReadyPhase()
+        return
+      }
       if (finalText) await respondToTurn(finalText)
-      else updatePhase('listening', 'I didn’t catch that. Try again when you’re ready.')
+      else updatePhase('idle', 'I didn’t catch that. Hold Space or press and hold the mic to try again.')
     } catch (error) {
       updatePhase('error', error instanceof Error ? error.message : 'I couldn’t transcribe that just now.')
     } finally {
       finalizingRef.current = false
+    }
+  }
+
+  const updateReadyPhase = () => {
+    updatePhase('idle', 'Hold Space or press and hold the mic to speak.')
+  }
+
+  const releaseAudioCapture = () => {
+    listeningRef.current = false
+    processorRef.current?.disconnect()
+    sourceRef.current?.disconnect()
+    muteRef.current?.disconnect()
+    streamRef.current?.getTracks().forEach(track => track.stop())
+    void contextRef.current?.close()
+    processorRef.current = null
+    sourceRef.current = null
+    muteRef.current = null
+    streamRef.current = null
+    contextRef.current = null
+  }
+
+  const releasePushToTalk = () => {
+    pushHeldRef.current = false
+    setPushHeld(false)
+    if (!listeningRef.current) return
+
+    const hasSpeech = utteranceSamplesRef.current > 0
+    releaseAudioCapture()
+    if (hasSpeech) {
+      void finishUtterance()
+    } else if (phaseRef.current === 'speaking') {
+      setStatus('I’m talking. Hold Space whenever you want to jump in.')
+    } else if (phaseRef.current === 'thinking') {
+      setStatus('I’m thinking. Hold Space if you want to add something.')
+    } else {
+      updateReadyPhase()
     }
   }
 
@@ -342,9 +430,11 @@ export function TalkToMePage() {
     const prerollLimit = Math.ceil(sampleRateRef.current * PREROLL_MS / frame.length)
     if (preroll.length > prerollLimit) preroll.splice(0, preroll.length - prerollLimit)
 
-    if ((phase === 'speaking' || phase === 'thinking') && rms > SPEECH_THRESHOLD) {
+    const isBargeIn = phase === 'speaking'
+    const speechThreshold = isBargeIn ? SPEECH_THRESHOLD * 1.8 : SPEECH_THRESHOLD
+    if ((phase === 'speaking' || phase === 'thinking') && rms > speechThreshold) {
       speechFramesRef.current += 1
-      if (speechFramesRef.current >= 3) {
+      if (speechFramesRef.current >= (isBargeIn ? 5 : 3)) {
         speechFramesRef.current = 0
         utteranceRef.current = [...preroll]
         utteranceSamplesRef.current = utteranceRef.current.reduce((total, item) => total + item.length, 0)
@@ -380,14 +470,17 @@ export function TalkToMePage() {
     utteranceSamplesRef.current += frame.length
     if (rms > SPEECH_THRESHOLD) lastSpeechAtRef.current = now
     if (utteranceSamplesRef.current >= interimNextAtRef.current) processInterimSpeech()
-    if (now - lastSpeechAtRef.current > SILENCE_MS || now - utteranceStartedAtRef.current > MAX_TURN_MS) {
-      void finishUtterance()
-    }
+    if (now - utteranceStartedAtRef.current > MAX_TURN_MS) releasePushToTalk()
   }
 
   const startListening = async () => {
-    if (listeningRef.current) return
-    setStatus('Allow microphone access to start talking.')
+    if (listeningRef.current || microphoneStartingRef.current) return
+    microphoneStartingRef.current = true
+    if (phaseRef.current === 'speaking' || phaseRef.current === 'thinking') {
+      setStatus('Opening the mic so you can jump in...')
+    } else {
+      updatePhase('loading', 'Opening your microphone...')
+    }
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -397,6 +490,16 @@ export function TalkToMePage() {
       updatePhase('error', error instanceof DOMException && error.name === 'NotAllowedError'
         ? 'Allow microphone access in your browser to talk.'
         : 'I couldn’t access your microphone. Check the browser’s site settings.')
+      microphoneStartingRef.current = false
+      pushHeldRef.current = false
+      setPushHeld(false)
+      return
+    }
+
+    if (!pushHeldRef.current) {
+      stream.getTracks().forEach(track => track.stop())
+      microphoneStartingRef.current = false
+      updateReadyPhase()
       return
     }
 
@@ -434,16 +537,31 @@ export function TalkToMePage() {
         processor.connect(mute)
       }
       mute.connect(context.destination)
+      microphoneStartingRef.current = false
       listeningRef.current = true
-      updatePhase('listening', modelReady ? 'I’m here. Take your time.' : 'Loading local speech model...')
+      if (phaseRef.current !== 'speaking' && phaseRef.current !== 'thinking') {
+        updatePhase('listening', modelReady ? 'Hold Space and speak, or press and hold the mic.' : 'Loading local speech model...')
+      }
+      if (!pushHeldRef.current) releasePushToTalk()
     } catch (error) {
       stream.getTracks().forEach(track => track.stop())
+      microphoneStartingRef.current = false
+      pushHeldRef.current = false
+      setPushHeld(false)
       updatePhase('error', error instanceof Error ? error.message : 'Could not start the microphone.')
     }
   }
 
+  const pressPushToTalk = () => {
+    if (pushHeldRef.current) return
+    pushHeldRef.current = true
+    setPushHeld(true)
+    void startListening()
+  }
+
   const stopListening = () => {
-    listeningRef.current = false
+    pushHeldRef.current = false
+    setPushHeld(false)
     responseIdRef.current += 1
     controllerRef.current?.abort()
     controllerRef.current = null
@@ -451,17 +569,10 @@ export function TalkToMePage() {
     speechQueueRef.current = []
     speechPendingRef.current = ''
     speakingRef.current = false
+    speakingTextRef.current = ''
+    interruptedSpeechRef.current = ''
     responseDoneRef.current = true
-    processorRef.current?.disconnect()
-    sourceRef.current?.disconnect()
-    muteRef.current?.disconnect()
-    streamRef.current?.getTracks().forEach(track => track.stop())
-    void contextRef.current?.close()
-    processorRef.current = null
-    sourceRef.current = null
-    muteRef.current = null
-    streamRef.current = null
-    contextRef.current = null
+    releaseAudioCapture()
     utteranceRef.current = []
     utteranceSamplesRef.current = 0
     updatePhase('idle', modelReady ? 'Your voice stays on this device.' : 'Local Whisper is still loading.')
@@ -483,7 +594,12 @@ export function TalkToMePage() {
       speechQueueRef.current = []
       speechPendingRef.current = ''
       speakingRef.current = false
-      if (phaseRef.current === 'speaking') updatePhase('thinking', 'I’ll keep listening.')
+      speakingTextRef.current = ''
+      if (phaseRef.current === 'speaking') {
+        updatePhase(listeningRef.current ? 'listening' : 'idle', 'Voice replies are muted. I’m still here with you.')
+      }
+    } else {
+      setStatus('Voice replies are on.')
     }
   }
 
@@ -496,22 +612,78 @@ export function TalkToMePage() {
               : phase === 'error' ? 'A pause'
                 : 'Ready when you are'
 
+  pushHandlersRef.current = { press: pressPushToTalk, release: releasePushToTalk }
+
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => target instanceof HTMLElement
+      && (target.isContentEditable || Boolean(target.closest('input, textarea, select, [role="textbox"], audio, video')))
+    const isOtherControl = (target: EventTarget | null) => target instanceof HTMLElement
+      && Boolean(target.closest('button:not([data-push-to-talk]), a'))
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat || isTypingTarget(event.target) || isOtherControl(event.target)) return
+      event.preventDefault()
+      spacePushActiveRef.current = true
+      pushHandlersRef.current.press()
+    }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || !spacePushActiveRef.current) return
+      event.preventDefault()
+      spacePushActiveRef.current = false
+      pushHandlersRef.current.release()
+    }
+    const releaseOnBlur = () => {
+      spacePushActiveRef.current = false
+      if (pushHeldRef.current) pushHandlersRef.current.release()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', releaseOnBlur)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', releaseOnBlur)
+    }
+  }, [])
+
   return <section className="page-content talk-page">
-    <header className="talk-heading"><div className="eyebrow">A QUIETER KIND OF CONVERSATION</div><h1>Talk to Me</h1><p>You can start anywhere. I’m listening.</p></header>
-    <div className={`talk-presence ${phase === 'speaking' || phase === 'recording' ? 'is-active' : ''} ${phase === 'thinking' || phase === 'transcribing' ? 'is-working' : ''}`} aria-live="polite">
+    <header className="talk-heading"><div className="eyebrow">A QUIETER KIND OF CONVERSATION</div><h1>Talk to Me</h1><p>Hold Space or press and hold the mic. Release to send.</p></header>
+      <div className={`talk-presence ${phase === 'speaking' || phase === 'recording' ? 'is-active' : ''} ${phase === 'thinking' || phase === 'transcribing' ? 'is-working' : ''}`} aria-live="polite">
       <AudioLines size={24} strokeWidth={1.5} />
       <span>{statusLabel}</span>
+    </div>
+    <div className={`talk-voice-state ${voiceEnabled ? 'is-enabled' : 'is-muted'} ${phase === 'speaking' ? 'is-talking' : ''}`} role="status" aria-live="polite">
+      {voiceEnabled
+        ? phase === 'speaking' ? 'Voice replies on · I’m talking now' : 'Voice replies on · I can speak my replies'
+        : 'Voice replies muted · I’ll keep listening'}
     </div>
     <div className={`talk-status phase-${phase}`} role="status"><span className="talk-status-dot" /><p>{status}</p></div>
     <div className="talk-controls">
       <div className="talk-mic-control">
-        <button className={`talk-mic ${listeningRef.current ? 'is-listening' : ''}`} onClick={() => listeningRef.current ? stopListening() : void startListening()} aria-label={listeningRef.current ? 'End conversation' : 'Start talking'} title={listeningRef.current ? 'End conversation' : 'Start talking'}>
-          {listeningRef.current ? <MicOff size={22} /> : <Mic size={22} />}
+        <button
+          className={`talk-mic ${pushHeld ? 'is-listening' : ''}`}
+          data-push-to-talk
+          onPointerDown={event => {
+            if (event.button !== 0) return
+            event.preventDefault()
+            event.currentTarget.setPointerCapture(event.pointerId)
+            pushHandlersRef.current.press()
+          }}
+          onPointerUp={() => pushHandlersRef.current.release()}
+          onPointerCancel={() => pushHandlersRef.current.release()}
+          onLostPointerCapture={() => pushHandlersRef.current.release()}
+          onContextMenu={event => event.preventDefault()}
+          aria-pressed={pushHeld}
+          aria-label={pushHeld ? 'Release to send' : 'Hold to talk'}
+          title="Hold this button or Space to talk"
+        >
+          <Mic size={22} />
         </button>
-        <span>{listeningRef.current ? 'End conversation' : 'Start talking'}</span>
+        <span>{pushHeld ? 'Release to send' : 'Hold to talk'}</span>
       </div>
       <div className="talk-secondary-controls">
-        <button className="talk-icon-button" onClick={toggleVoice} aria-label={voiceEnabled ? 'Mute voice replies' : 'Enable voice replies'} title={voiceEnabled ? 'Mute voice replies' : 'Enable voice replies'}>
+        <button className="talk-icon-button" onClick={toggleVoice} aria-pressed={voiceEnabled} aria-label={voiceEnabled ? 'Mute voice replies' : 'Enable voice replies'} title={voiceEnabled ? 'Mute voice replies' : 'Enable voice replies'}>
           {voiceEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
         </button>
         <button className="talk-icon-button" onClick={clearConversation} aria-label="Clear conversation" title="Clear conversation"><RotateCcw size={17} /></button>
@@ -521,7 +693,9 @@ export function TalkToMePage() {
     <div className="talk-transcript" ref={scrollRef} aria-live="polite" aria-label="Conversation">
       {turns.map(turn => <article className={`talk-turn ${turn.role === 'assistant' ? 'assistant-turn' : 'user-turn'}`} key={turn.id}>
         <span className="talk-turn-label">{turn.role === 'assistant' ? 'MEMORY' : 'YOU'}{turn.memoryUsed && <small>REMEMBERED</small>}{turn.interrupted && <small>INTERRUPTED</small>}</span>
-        <p>{turn.content || (turn.role === 'assistant' ? '…' : '')}</p>
+        <p>{turn.role === 'assistant'
+          ? turn.content ? <WordReveal text={turn.content} /> : '…'
+          : turn.content}</p>
       </article>)}
       {liveDraft && <article className="talk-turn user-turn live-draft-turn"><span className="talk-turn-label">YOU <small>LIVE</small></span><p>{liveDraft}</p></article>}
       {!turns.length && <div className="talk-empty"><span className="eyebrow">NO SCRIPT NEEDED</span><p>How has today been?</p></div>}

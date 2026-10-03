@@ -20,7 +20,7 @@ using the dated excerpts below. Rules:
 - Only cite entries you actually used — never cite every excerpt.
 - You may synthesize across entries, but never invent facts or dates not in the journal.
 - If the journal does not contain the answer, say so plainly and suggest what to journal about.
-Keep it warm, direct, and plain-text (no markdown headers)."""
+Answer in a warm, attentive voice. Acknowledge the feeling or intent behind the question when it is clear, then answer directly and gently. Be receptive to corrections and follow-up questions. Keep it plain-text (no markdown headers), grounded in the journal, and avoid performative empathy or invented details."""
 
 SYSTEM_TOOLS = """You are a private journal assistant. You answer questions ONLY about what is in the user's own journal,
 using the read-only tools available to you.
@@ -44,7 +44,7 @@ Rules:
 - Answer conversationally, in your own words: summarize. Never paste raw entry text or tool JSON.
 - Never ask the user for more detail before searching - search first, then ask only if genuinely ambiguous.
 - If the journal does not contain the answer, say so plainly and suggest what to journal about.
-Keep it warm, direct, and plain-text (no markdown headers)."""
+Answer in a warm, attentive voice. Acknowledge the feeling or intent behind the question when it is clear, then answer directly and gently. Be receptive to corrections and follow-up questions. Keep it plain-text (no markdown headers), grounded in tool results, and avoid performative empathy or invented details."""
 
 
 def _snippet(text, limit=700):
@@ -100,9 +100,25 @@ async def _retrieve(text, top_k=None):
     return list(found), found
 
 
-async def _answer_with_tools(question, tools):
+MODE_GUIDANCE = {
+    "Recall": "Answer factual questions from journal entries. Be clear when the journal has no answer.",
+    "Reflect": "Help the user notice patterns, feelings, and changes across their journal. Be thoughtful and tentative, not diagnostic.",
+    "Plan": "Help turn the user's journal context into a practical, gentle next-step plan. Separate remembered priorities from suggestions.",
+}
+
+
+def _history_messages(history):
+    return [
+        {"role": item.role, "content": item.content}
+        for item in (history or [])[-12:]
+        if item.role in ("user", "assistant") and item.content.strip()
+    ]
+
+
+async def _answer_with_tools(question, tools, mode="Recall", history=None):
     messages = [
-        {"role": "system", "content": SYSTEM_TOOLS},
+        {"role": "system", "content": SYSTEM_TOOLS + "\n\nMode: " + MODE_GUIDANCE.get(mode, MODE_GUIDANCE["Recall"])},
+        *_history_messages(history),
         {"role": "user", "content": question},
     ]
     used_ids = set()
@@ -170,7 +186,7 @@ async def _answer_with_tools(question, tools):
     return {"answer": answer, "sources": cited if used_ids else []}
 
 
-async def _answer_fallback(question):
+async def _answer_fallback(question, mode="Recall", history=None):
     ids, scores = await _retrieve(question)
     if ids is None:
         raise RuntimeError("No journal embeddings are available yet. Add an entry while Ollama is running.")
@@ -191,7 +207,13 @@ async def _answer_fallback(question):
             f"{_snippet(entry.get('summary') or entry['text'])}"
         )
     prompt = "Journal excerpts:\n\n" + "\n\n".join(excerpts or ["(No relevant entries found.)"])
-    answer = await ollama_client.chat(SYSTEM_RETRIEVAL, f"{prompt}\n\nQuestion: {question}", temperature=0.3)
+    messages = [
+        {"role": "system", "content": SYSTEM_RETRIEVAL + "\n\nMode: " + MODE_GUIDANCE.get(mode, MODE_GUIDANCE["Recall"])},
+        *_history_messages(history),
+        {"role": "user", "content": f"{prompt}\n\nQuestion: {question}"},
+    ]
+    response = await ollama_client.chat_messages(messages, temperature=0.3)
+    answer = response.get("content", "")
     sources = _sources_from(answer, [entries[item] for item in selected])
     if not sources and not any(phrase in answer.lower() for phrase in VACUOUS):
         sources = [
@@ -207,14 +229,54 @@ async def _answer_fallback(question):
     return {"answer": answer, "sources": sources}
 
 
-async def answer_question(question):
+async def answer_question(question, mode="Recall", history=None):
+    history = history or []
+    if mode == "General":
+        messages = [
+            {"role": "system", "content": "You are a warm, helpful assistant. Answer general questions directly and conversationally. Use prior turns for context. Do not claim personal experiences. If the user asks about their own past, explain that Recall or Search can look through their journal."},
+            *_history_messages(history),
+            {"role": "user", "content": question},
+        ]
+        response = await ollama_client.chat_messages(messages, temperature=0.5)
+        return {"answer": response.get("content", ""), "sources": []}
+    if not db.list_entries(limit=1):
+        message = "Your journal is empty right now, so there aren't any saved moments to look through yet. Add an entry and I'll be able to help you reflect on it."
+        if mode == "Search":
+            message = "I couldn't find a match because your journal is empty. Once you add an entry, I can search it for you."
+        return {"answer": message, "sources": []}
+    if mode == "Search":
+        ignored = {"about", "what", "when", "where", "which", "find", "search", "show", "tell", "from", "with", "that", "this", "have", "did", "was", "were", "the", "and", "for", "entries", "entry", "journal", "notes", "note"}
+        terms = [term for term in re.findall(r"[\w'-]+", question.lower()) if len(term) > 2 and term not in ignored]
+        matches = []
+        seen = set()
+        for term in terms or [question]:
+            for entry in db.search_entries(term, limit=8):
+                if entry["id"] not in seen:
+                    seen.add(entry["id"])
+                    matches.append(entry)
+                if len(matches) >= 8:
+                    break
+            if len(matches) >= 8:
+                break
+        excerpts = [
+            f"[E{entry['id']}] ({entry['created_at'][:10]}) {entry.get('title') or 'Untitled'}\n{_snippet(entry.get('summary') or entry['text'])}"
+            for entry in matches
+        ]
+        messages = [
+            {"role": "system", "content": "You search the user's journal for literal keyword matches. Report what matched in a concise, friendly way. Only use the supplied entries; cite used entries with [E{id}]. If none match, say no exact matches were found and suggest a related phrase."},
+            *_history_messages(history),
+            {"role": "user", "content": f"Search phrase: {question}\n\nMatching entries:\n" + "\n\n".join(excerpts or ["(No matches.)"])},
+        ]
+        response = await ollama_client.chat_messages(messages, temperature=0.2)
+        answer = response.get("content", "")
+        return {"answer": answer, "sources": _sources_from(answer, matches)}
     try:
         tools = await mcp_client.get_tools()
     except Exception:
         tools = []
     if tools:
         try:
-            return await _answer_with_tools(question, tools)
+            return await _answer_with_tools(question, tools, mode, history)
         except Exception:
             pass
-    return await _answer_fallback(question)
+    return await _answer_fallback(question, mode, history)
