@@ -7,7 +7,7 @@ DB_PATH = DATA_DIR / "journal.db"
 AUDIO_DIR = DATA_DIR / "audio"
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "nahiyananwar/mental-health-ai")
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "qwen2.5:3b")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 
 WHISPER_CLI = os.environ.get("WHISPER_CLI", "").strip()
