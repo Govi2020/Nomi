@@ -1,3 +1,5 @@
+import { sanitizeTranscribedText } from '../features/diary/transcript'
+
 const MODEL_ID = 'Xenova/whisper-tiny.en'
 const TARGET_SAMPLE_RATE = 16_000
 
@@ -85,8 +87,9 @@ export async function preloadWhisper(onProgress: ProgressHandler) {
 
 export async function transcribePcm(audio: Float32Array, sampleRate: number, onProgress: ProgressHandler) {
   const [transcriber, resampled] = await Promise.all([getPipeline(onProgress), resamplePcm(audio, sampleRate)])
-  return transcriber(resampled, {
+  const transcript = await transcriber(resampled, {
     chunk_length_s: 30,
     stride_length_s: 5,
   })
+  return sanitizeTranscribedText(transcript)
 }

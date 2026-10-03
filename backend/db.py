@@ -1,7 +1,9 @@
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import closing
+from pathlib import Path
 
 import numpy as np
 
@@ -89,6 +91,107 @@ def connect():
     return conn
 
 
+def _seed_demo_entries():
+    samples = [
+        {
+            "title": "Call Maya before Friday",
+            "text": "I need to call Maya before Friday and ask whether she still wants to join the reading group next week. We talked about meeting on Thursday and I still need to send the shortlist of books we were comparing. I should also ask if she wants me to bring the notes I wrote after the coffee chat. I am trying to keep the momentum going and not leave this hanging for another week.",
+            "mood": "Thoughtful",
+            "energy": "Steady",
+            "tags": ["family", "friendship", "planning"],
+            "entities": [{"name": "Maya", "type": "person"}, {"name": "reading group", "type": "thing"}],
+        },
+        {
+            "title": "Finish the design notes",
+            "text": "I have to finish the design notes for the new dashboard before the team review on Monday. I want to make sure the flow is clear and that the summary reflects what we tested on Saturday. I should bring the version with the simplified navigation and leave out the extra experiments that never ended up being useful. Everything feels less noisy when I trim it back to the user path.",
+            "mood": "Focused",
+            "energy": "High",
+            "tags": ["work", "design", "planning"],
+            "entities": [{"name": "Monday review", "type": "event"}, {"name": "dashboard", "type": "thing"}],
+        },
+        {
+            "title": "Book the train for London",
+            "text": "I need to book the train to London before the weekend rush and I also want to check the hotel reservation I made last month. I am pretty sure the dates still match, but I should confirm them anyway because I do not want to arrive with the wrong plan. The trip is meant to be restorative, not stressful, so I need to make the logistics easier rather than harder.",
+            "mood": "Hopeful",
+            "energy": "Medium",
+            "tags": ["travel", "planning", "rest"],
+            "entities": [{"name": "London", "type": "place"}, {"name": "hotel", "type": "thing"}],
+        },
+        {
+            "title": "Clean the studio desk",
+            "text": "I should clean the studio desk and make a proper space for the next round of work. I have been leaving notes and tools everywhere and it is beginning to feel like a cluttered mess. A clean surface would help me start again with more clarity. I want to sort the sketches, file the receipts, and leave the area ready for the next project session.",
+            "mood": "Calm",
+            "energy": "Medium",
+            "tags": ["studio", "creativity", "organization"],
+            "entities": [{"name": "studio desk", "type": "thing"}],
+        },
+        {
+            "title": "Call Dad and ask about the garden",
+            "text": "I need to call Dad and ask about the garden before I forget the details again. He always knows what is ready to harvest, what needs more watering, and which plants are finally starting to settle in. I want to hear how things are looking after the rain and whether he needs any help with the tomatoes or the herbs. It would be good to spend a little time listening and making a plan for the weekend.",
+            "mood": "Warm",
+            "energy": "Steady",
+            "tags": ["family", "home", "nature"],
+            "entities": [{"name": "Dad", "type": "person"}, {"name": "tomatoes", "type": "thing"}],
+        },
+        {
+            "title": "Submit the application",
+            "text": "I really need to submit the application before the deadline and I want to avoid the last-minute scramble. I have been gathering the materials for days and I am ready to upload the final version. I should also send a short follow-up email to the admissions coordinator and ask whether they need anything else. It feels much calmer once I stop revising and actually send it.",
+            "mood": "Determined",
+            "energy": "High",
+            "tags": ["work", "education", "responsibility"],
+            "entities": [{"name": "admissions coordinator", "type": "person"}, {"name": "application", "type": "thing"}],
+        },
+        {
+            "title": "Take the bike in for service",
+            "text": "I should take the bike in for service this week because the brakes have felt slightly unsteady for the last few rides. I need to check the repair shop hours and choose a slot that does not interfere with work. Once I get it sorted, I want to add a short route to the weekend plan so I can get back outside without worrying about the gears. It is a small thing, but it affects the whole mood of the week.",
+            "mood": "Grounded",
+            "energy": "Medium",
+            "tags": ["health", "maintenance", "weekend"],
+            "entities": [{"name": "repair shop", "type": "place"}, {"name": "bike", "type": "thing"}],
+        },
+        {
+            "title": "Prepare the weekend meal plan",
+            "text": "I want to prepare the weekend meal plan before the market closes so I can buy the ingredients in one trip. I need to think ahead to lunches, dinners, and a few easy snacks for the days when I am tired. I should also keep the plan realistic instead of ambitious. A little structure at the start of the week makes the rest of the days feel easier.",
+            "mood": "Practical",
+            "energy": "Low",
+            "tags": ["home", "food", "planning"],
+            "entities": [{"name": "market", "type": "place"}],
+        },
+        {
+            "title": "Check in with Priya",
+            "text": "I need to check in with Priya because she has been carrying a lot lately and I do not want to miss the chance to support her. I should send a message this evening and ask whether she wants to talk or just take a walk. I want to keep the conversation simple and open, without trying to fix everything. I think listening is the main thing I can offer right now.",
+            "mood": "Caring",
+            "energy": "Steady",
+            "tags": ["friendship", "support", "care"],
+            "entities": [{"name": "Priya", "type": "person"}],
+        },
+        {
+            "title": "Sort the photo archive",
+            "text": "I want to sort the photo archive this week and pull out the best shots from the last six months. I need to group them by trip, family, and studio work and decide what deserves to be saved in the best folders. I should also move the duplicate files into a separate archive so it is easier to browse the collection later. It feels like a good task for a slower afternoon when I can take my time and enjoy the memory of it.",
+            "mood": "Reflective",
+            "energy": "Quiet",
+            "tags": ["memory", "family", "archives"],
+            "entities": [{"name": "photo archive", "type": "thing"}],
+        },
+    ]
+    for sample in samples:
+        entry_id = create_entry(
+            sample["text"],
+            sample["title"],
+            source="text",
+            audio_path=None,
+            mood=sample["mood"],
+            energy=sample["energy"],
+        )
+        set_entry_tags(entry_id, sample["tags"])
+        set_entry_entities(entry_id, sample["entities"])
+
+
+def _should_seed_demo_entries():
+    project_data_dir = (Path(__file__).resolve().parent.parent / "data").resolve()
+    return config.DATA_DIR.resolve() == project_data_dir
+
+
 def init_db():
     config.ensure_dirs()
     with closing(connect()) as conn:
@@ -97,6 +200,9 @@ def init_db():
         if "energy" not in columns:
             conn.execute("ALTER TABLE entries ADD COLUMN energy TEXT")
         conn.commit()
+    with closing(connect()) as conn:
+        if _should_seed_demo_entries() and conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 0:
+            _seed_demo_entries()
 
 
 def _row_to_dict(row):
@@ -150,6 +256,128 @@ def list_entries(limit=200, offset=0):
             (max(0, min(int(limit), 1000)), max(0, int(offset))),
         ).fetchall()
         return _attach_meta(conn, [_row_to_dict(row) for row in rows])
+
+
+def _task_status_from_text(text):
+    haystack = (text or "").lower()
+    if any(token in haystack for token in ["done", "finished", "completed", "checked off", "resolved", "handled", "wrap up"]):
+        return "done"
+    return "open"
+
+
+def _task_due_from_entry(title, text, created_at):
+    combined = f"{title or ''} {text or ''}".strip()
+    for label in ["tomorrow", "today", "this week", "next week", "later", "soon"]:
+        if label.lower() in combined.lower():
+            return label.title()
+    try:
+        if created_at:
+            return created_at[:10]
+    except (TypeError, ValueError):
+        pass
+    return "Soon"
+
+
+def get_people(limit=10):
+    limit = max(1, min(int(limit), 100))
+    with closing(connect()) as conn:
+        rows = conn.execute(
+            """
+            SELECT e.id, e.name, COUNT(DISTINCT ee.entry_id) AS moment_count, MAX(en.created_at) AS last_seen
+            FROM entities e
+            JOIN entry_entities ee ON ee.entity_id = e.id
+            JOIN entries en ON en.id = ee.entry_id
+            WHERE lower(e.type) = 'person'
+            GROUP BY e.id, e.name
+            ORDER BY moment_count DESC, last_seen DESC, e.name COLLATE NOCASE
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        people = []
+        for row in rows:
+            entity_id = row["id"]
+            entry_ids = [gift["entry_id"] for gift in conn.execute(
+                "SELECT entry_id FROM entry_entities WHERE entity_id=? ORDER BY entry_id DESC",
+                (entity_id,),
+            ).fetchall()]
+            recent_entry = conn.execute(
+                "SELECT id, title, summary, text, created_at FROM entries WHERE id IN ({marks}) ORDER BY created_at DESC, id DESC LIMIT 1".format(
+                    marks=",".join("?" for _ in entry_ids) if entry_ids else "?"
+                ),
+                tuple(entry_ids) if entry_ids else (0,),
+            ).fetchone()
+            tag_rows = conn.execute(
+                """
+                SELECT t.name, COUNT(*) AS score
+                FROM entry_tags et
+                JOIN tags t ON t.id = et.tag_id
+                WHERE et.entry_id IN ({marks})
+                GROUP BY t.name
+                ORDER BY score DESC, t.name COLLATE NOCASE
+                LIMIT 3
+                """.format(
+                    marks=",".join("?" for _ in entry_ids) if entry_ids else "?"
+                ),
+                tuple(entry_ids) if entry_ids else (0,),
+            ).fetchall()
+            recent_title = None
+            if recent_entry is not None:
+                recent_title = (recent_entry["title"] or recent_entry["summary"] or recent_entry["text"] or "").strip()
+                if recent_title:
+                    recent_title = recent_title[:140]
+            people.append({
+                "name": row["name"],
+                "moment_count": int(row["moment_count"]),
+                "last_seen": row["last_seen"],
+                "top_tags": [item["name"] for item in tag_rows],
+                "recent_title": recent_title,
+            })
+        return people
+
+
+def get_tasks(limit=8):
+    limit = max(1, min(int(limit), 50))
+    task_markers = [
+        "need to", "have to", "should", "must", "i need to", "i should",
+        "i have to", "before", "tomorrow", "this week", "next week",
+        "call ", "email ", "book ", "submit ", "check in with", "ask about",
+        "finish ", "clean ", "prepare ", "sort ", "take ", "call",
+    ]
+    with closing(connect()) as conn:
+        rows = conn.execute(
+            "SELECT id, title, summary, text, created_at FROM entries ORDER BY created_at DESC, id DESC LIMIT ?",
+            (limit * 10,),
+        ).fetchall()
+        tasks = []
+        for row in rows:
+            combined = f"{row['title'] or ''} {row['summary'] or ''} {row['text'] or ''}".strip()
+            haystack = combined.lower()
+            explicit = any(marker in haystack for marker in task_markers)
+            if not explicit:
+                continue
+            if re.search(r"\b(i|we|you) (?:need to|have to|should|must)\b", haystack):
+                explicit = True
+            if not explicit:
+                continue
+            task_title = (row["title"] or row["summary"] or row["text"] or "Untitled task").strip()
+            task_summary = (row["summary"] or row["text"] or "").strip()
+            if len(task_summary) > 180:
+                task_summary = task_summary[:177].rstrip() + "..."
+            if not task_summary:
+                task_summary = "A follow-up task surfaced from your journal."
+            tasks.append({
+                "id": str(row["id"]),
+                "title": task_title[:90],
+                "due": _task_due_from_entry(row["title"], row["text"], row["created_at"]),
+                "status": _task_status_from_text(combined),
+                "summary": task_summary,
+                "source_date": row["created_at"][:10] if row["created_at"] else None,
+            })
+            if len(tasks) >= limit:
+                break
+        return tasks
 
 
 def get_entry(entry_id):

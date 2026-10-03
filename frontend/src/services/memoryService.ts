@@ -1,4 +1,5 @@
 import type { DiaryEntry, Memory } from '../types'
+import { sanitizeTranscribedText } from '../features/diary/transcript'
 import { apiClient } from './apiClient'
 
 const memories: Memory[] = [
@@ -108,7 +109,7 @@ async function audioToWav(blob: Blob) {
 async function transcribeAudio(blob: Blob) {
   const wav = await audioToWav(blob)
   const result = await apiClient.postFile<{ text?: string }>('/api/transcribe', wav, 'dictation.wav')
-  return result.text?.trim() ?? ''
+  return sanitizeTranscribedText(result.text ?? '')
 }
 
 async function loadAllDiaryEntries() {
@@ -131,6 +132,9 @@ export const memoryService = {
   getAllDiaryEntries: loadAllDiaryEntries,
   deleteAllDiaryEntries() {
     return apiClient.delete<{ deleted_count: number }>('/api/entries')
+  },
+  async deleteDiaryEntry(id: string) {
+    await apiClient.delete(`/api/entries/${id}`)
   },
   async getDiaryEntry(id: string) {
     return fromApiDiaryEntry(await apiClient.get<ApiDiaryEntry>(`/api/entries/${id}`))

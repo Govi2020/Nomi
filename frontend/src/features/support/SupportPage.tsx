@@ -1,10 +1,28 @@
-import { useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Check, ChevronRight, Download, LockKeyhole, Printer, RefreshCw, Trash as Trash2, Cancel as X } from '../../components/icons'
 import type { DiaryEntry, Page } from '../../types'
 import { PageHeading } from '../../components/PageHeading'
 import { energyOptions, moodOptions, type UserPreferences } from '../../services/userPreferences'
 import { clinicalReportService, type ClinicalReport } from '../../services/clinicalReportService'
+import { apiClient } from '../../services/apiClient'
 import { colorThemes, type ThemeId } from '../../theme'
+
+type SupportPerson = {
+  name: string
+  moment_count: number
+  last_seen: string | null
+  top_tags: string[]
+  recent_title: string | null
+}
+
+type SupportTask = {
+  id: string
+  title: string
+  due: string
+  status: 'open' | 'done'
+  summary: string
+  source_date: string
+}
 
 type Props = {
   page: Page
@@ -17,6 +35,13 @@ type Props = {
   onDeleteDiary: () => Promise<number>
 }
 
+const formatShortDate = (value: string | null) => {
+  if (!value) return 'recently'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'recently'
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date)
+}
+
 export function SupportPage({ page, theme, onThemeChange, preferences, onPreferenceChange, diaryCount, onExportDiary, onDeleteDiary }: Props) {
   const [exporting, setExporting] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -27,10 +52,39 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
   const [report, setReport] = useState<ClinicalReport | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState('')
+  const [people, setPeople] = useState<SupportPerson[]>([])
+  const [tasks, setTasks] = useState<SupportTask[]>([])
+  const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState('')
+
+  useEffect(() => {
+    if (page !== 'People' && page !== 'Tasks') return
+
+    let active = true
+    setListLoading(true)
+    setListError('')
+
+    const endpoint = page === 'People' ? '/api/people' : '/api/tasks'
+    void apiClient.get<SupportPerson[] | SupportTask[]>(endpoint)
+      .then((payload) => {
+        if (!active) return
+        if (page === 'People') setPeople(payload as SupportPerson[])
+        else setTasks(payload as SupportTask[])
+      })
+      .catch((reason) => {
+        if (!active) return
+        setListError(reason instanceof Error ? reason.message : 'Could not load this list from the backend.')
+      })
+      .finally(() => {
+        if (active) setListLoading(false)
+      })
+
+    return () => { active = false }
+  }, [page])
+
   const content: Record<string, { eyebrow: string; title: string; subtitle: string; rows: string[] }> = {
-    People: { eyebrow: 'THE PEOPLE IN YOUR STORY', title: 'People', subtitle: 'The names that show up in your memories.', rows: ['Arun · 8 moments together', 'Rahul · 5 moments together', 'Maya · 3 moments together'] },
-    Projects: { eyebrow: 'WHAT HAS YOUR ATTENTION', title: 'Projects', subtitle: 'Ideas and work you’ve been giving your time to.', rows: ['Memory · 7 memories', 'College · 5 memories', 'Personal · 3 memories'] },
-    Tasks: { eyebrow: 'SMALL STEPS, HELD LIGHTLY', title: 'Tasks', subtitle: 'Things you meant to come back to.', rows: ['Finish the diary view · Today', 'Try the recording flow · Today', 'Ask Arun about the time capsule idea · Tomorrow'] },
+    People: { eyebrow: 'THE PEOPLE IN YOUR STORY', title: 'People', subtitle: 'The names that keep resurfacing in your memories.', rows: [] },
+    Tasks: { eyebrow: 'SMALL STEPS, HELD LIGHTLY', title: 'Tasks', subtitle: 'Things you were going to come back to and the ones that still matter.', rows: [] },
     Settings: { eyebrow: 'YOUR SPACE, YOUR CHOICES', title: 'Settings', subtitle: 'Set up your writing space, voice, and saved data.', rows: [] },
   }
   const data = content[page]
@@ -92,9 +146,49 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
     .map(([label, count]) => `${label}: ${count}`)
     .join(' · ')
 
+  const renderPeopleRows = () => {
+    if (listLoading) return <div className="support-list"><div className="support-row"><span className="support-index">..</span><span>Loading the people who keep showing up…</span></div></div>
+    if (listError) return <div className="support-list"><div className="support-row"><span className="support-index">!</span><span>{listError}</span></div></div>
+    if (!people.length) return <div className="support-list"><div className="support-row"><span className="support-index">0</span><span>No people have been identified yet. Add more diary entries and they’ll appear here automatically.</span></div></div>
+
+    return <div className="support-list support-card-list">
+      {people.map((person, index) => <div className="support-row support-card" key={person.name}>
+        <span className="support-index">{String(index + 1).padStart(2, '0')}</span>
+        <div className="support-card-body">
+          <div className="support-card-head"><strong>{person.name}</strong><span>{person.moment_count} {person.moment_count === 1 ? 'moment' : 'moments'}</span></div>
+          <p>{person.recent_title ? `Most recent: ${person.recent_title}` : 'This person has shown up in a recent entry.'}</p>
+          <div className="support-tag-row">{person.top_tags.length ? person.top_tags.slice(0, 3).map(tag => <span key={`${person.name}-${tag}`} className="support-tag">{tag}</span>) : <span className="support-tag">story</span>}</div>
+        </div>
+        <div className="support-card-meta"><small>Last seen</small><b>{formatShortDate(person.last_seen)}</b></div>
+        <ChevronRight size={15} />
+      </div>)}
+    </div>
+  }
+
+  const renderTaskRows = () => {
+    if (listLoading) return <div className="support-list"><div className="support-row"><span className="support-index">..</span><span>Checking your recent notes for follow-up tasks…</span></div></div>
+    if (listError) return <div className="support-list"><div className="support-row"><span className="support-index">!</span><span>{listError}</span></div></div>
+    if (!tasks.length) return <div className="support-list"><div className="support-row"><span className="support-index">0</span><span>No active tasks surfaced from your journal yet. A few more entries will make this a much better guide.</span></div></div>
+
+    return <div className="support-list support-card-list">
+      {tasks.map((task, index) => <div className="support-row support-card" key={task.id}>
+        <span className="support-index">{String(index + 1).padStart(2, '0')}</span>
+        <div className="support-card-body">
+          <div className="support-card-head"><strong>{task.title}</strong><span className={`task-badge ${task.status}`}>{task.status === 'done' ? 'Done' : 'Open'}</span></div>
+          <p>{task.summary}</p>
+          <div className="support-tag-row"><span className="support-tag">{task.due}</span><span className="support-tag">{formatShortDate(task.source_date)}</span></div>
+        </div>
+        <div className="support-card-meta"><small>Next</small><b>{task.due}</b></div>
+        <ChevronRight size={15} />
+      </div>)}
+    </div>
+  }
+
   return <section className="page-content">
     <PageHeading eyebrow={data.eyebrow} title={data.title} subtitle={data.subtitle} />
-    {page !== 'Settings' && <div className="support-list">{data.rows.map((row, i) => <div className="support-row" key={row}><span className="support-index">0{i + 1}</span><span>{row}</span><ChevronRight size={15} /></div>)}</div>}
+    {page === 'People' && renderPeopleRows()}
+    {page === 'Tasks' && renderTaskRows()}
+    {page !== 'Settings' && page !== 'People' && page !== 'Tasks' && <div className="support-list">{data.rows.map((row, i) => <div className="support-row" key={row}><span className="support-index">0{i + 1}</span><span>{row}</span><ChevronRight size={15} /></div>)}</div>}
     {page === 'Settings' && <>
       <section className="settings-section" aria-labelledby="settings-appearance">
         <div className="settings-section-heading"><h2 id="settings-appearance">Appearance</h2><p>Choose a palette for your writing space. Your choice is saved in this browser.</p></div>
@@ -188,14 +282,12 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
               <ul className="report-prompts">
                 <li>Which observations feel representative, and which need more context?</li>
                 <li>What was happening in daily life around the dates shown in the cited entries?</li>
-                <li>Are there important experiences or strengths that this journal does not capture?</li>
+                <li>Are there other sources of evidence to compare with the diary record?</li>
               </ul>
             </section>
-            <footer className="report-footer">Generated from the person’s saved diary at their request. Interpretations are tentative and should be checked with the person; the report does not provide a diagnosis or treatment recommendation.</footer>
           </article>
         </>}
       </section>
-      <div className="privacy-note-large"><LockKeyhole size={17} /><p>Diary dictation uses Whisper Tiny locally. Talk speech input is sent to your configured backend for Parakeet TDT transcription; Kokoro generates spoken replies in your browser after downloading its model from Hugging Face on first use. Manage microphone access in your browser’s site settings.</p></div>
     </>}
   </section>
 }

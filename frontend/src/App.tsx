@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArtificialIntelligence, AudioLines, CalendarDays, Check, HelpCircle as CircleHelp, Compass, Feather, FolderKanban, Home, LockKeyhole, Menu, Settings as Settings2, Users } from './components/icons'
+import { ArtificialIntelligence, AudioLines, CalendarDays, Check, HelpCircle as CircleHelp, Compass, Feather, Home, LockKeyhole, Menu, Settings as Settings2, Users } from './components/icons'
 import { gsap } from 'gsap'
 import type { DiaryEntry, Memory, Page } from './types'
 import { memoryService } from './services/memoryService'
@@ -20,7 +20,7 @@ import { colorThemes, getColorTheme, type ThemeId } from './theme'
 const primary: { label: Page; icon: typeof Home }[] = [
   { label: 'Home', icon: Home }, { label: 'Diary', icon: Feather }, { label: 'Talk to Me', icon: AudioLines }, { label: 'Ask AI', icon: ArtificialIntelligence }, { label: 'Timeline', icon: CalendarDays }, { label: 'Insights', icon: Compass },
 ]
-const secondary: { label: Page; icon: typeof Home }[] = [{ label: 'People', icon: Users }, { label: 'Projects', icon: FolderKanban }, { label: 'Tasks', icon: Check }]
+const secondary: { label: Page; icon: typeof Home }[] = [{ label: 'People', icon: Users }, { label: 'Tasks', icon: Check }]
 
 export default function App() {
   const [page, setPage] = useState<Page>('Home')
@@ -204,6 +204,12 @@ export default function App() {
     setDiaryLoadError('')
     return result.deleted_count
   }
+  const deleteDiaryEntry = async (entry: DiaryEntry) => {
+    await memoryService.deleteDiaryEntry(entry.id)
+    setDiary(current => current.filter(item => item.id !== entry.id))
+    if (selectedDiary?.id === entry.id) setSelectedDiary(null)
+    setDiaryLoadError('')
+  }
   useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 30_000); return () => window.clearInterval(id) }, [])
   useEffect(() => { if (!toast) return; const id = window.setTimeout(() => setToast(''), 2500); return () => window.clearTimeout(id) }, [toast])
   const navigate = (next: Page) => { setPage(next); setSelectedMemory(null); setSelectedDiary(null); setMobileNav(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
@@ -299,12 +305,12 @@ export default function App() {
     {mobileNav && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} />}
     <main ref={mainAreaRef} className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="Open menu"><Menu size={20} /></button><span className="crumb-dot" /><span>{page === 'Home' ? 'A quieter way to remember' : page}</span></div><div className="topbar-right"><span className="date-today">{new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(now).toUpperCase()}</span><button className="help-button" aria-label="About Memory" onClick={() => setToast('Memory helps you capture moments and find them again.')}><CircleHelp size={17} /></button></div></header>
       {page === 'Home' && <HomePage now={now} diary={diary} onNavigate={navigate} onNewEntry={() => { const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date()); navigate('Diary'); setSelectedDiary({ id: 'new', date, title: '', content: '', mood: preferences.defaultMood, energy: preferences.defaultEnergy, topics: [], people: [], memoryIds: [] }) }} memories={memories} onOpenMemory={setSelectedMemory} onOpenDiary={entry => { navigate('Diary'); setSelectedDiary(entry) }} />}
-      {page === 'Diary' && <DiaryPage diary={diary} selected={selectedDiary} onSelect={setSelectedDiary} onSave={saveDiaryEntry} loadError={diaryLoadError} defaultMood={preferences.defaultMood} defaultEnergy={preferences.defaultEnergy} spellCheck={preferences.spellCheck} editorTextSize={preferences.editorTextSize} />}
+      {page === 'Diary' && <DiaryPage diary={diary} selected={selectedDiary} onSelect={setSelectedDiary} onSave={saveDiaryEntry} loadError={diaryLoadError} defaultMood={preferences.defaultMood} defaultEnergy={preferences.defaultEnergy} spellCheck={preferences.spellCheck} editorTextSize={preferences.editorTextSize} onDelete={deleteDiaryEntry} />}
       {page === 'Talk to Me' && <TalkToMePage voiceReplies={preferences.voiceReplies} speechRate={preferences.speechRate} onVoiceRepliesChange={voiceReplies => updatePreferences({ voiceReplies })} />}
       {page === 'Ask AI' && <AskPage query={query} setQuery={setQuery} onAsk={ask} turns={askTurns} chats={askChats} selectedChatId={selectedAskChatId} chatsLoading={askChatsLoading} chatError={askChatError} onSelectChat={selectAskChat} onNewChat={createAskChat} asking={asking} mode={mode} setMode={setMode} contextOpen={contextOpen} setContextOpen={setContextOpen} onOpenSource={source => { if (source.kind === 'Memory') { const found = memories.find(item => item.id === source.id); if (found) setSelectedMemory(found) } else if (source.kind === 'Diary entry') { setSelectedDiary(diary.find(entry => entry.id === source.id) ?? diary[0]); setPage('Diary') } else setPage('Timeline') }} />}
       {page === 'Timeline' && <TimelinePage entries={diary} loading={diaryLoading} loadError={diaryLoadError} onOpenEntry={id => { const entry = diary.find(item => item.id === id); if (entry) { setSelectedDiary(entry); setPage('Diary') } }} />}
       {page === 'Insights' && <InsightsPage diary={diary} onOpenEntry={openInsightEntry} />}
-      {['People', 'Projects', 'Tasks', 'Settings'].includes(page) && <SupportPage page={page} theme={theme} onThemeChange={setTheme} preferences={preferences} onPreferenceChange={updatePreferences} diaryCount={diary.length} onExportDiary={exportDiary} onDeleteDiary={deleteDiary} />}
+      {['People', 'Tasks', 'Settings'].includes(page) && <SupportPage page={page} theme={theme} onThemeChange={setTheme} preferences={preferences} onPreferenceChange={updatePreferences} diaryCount={diary.length} onExportDiary={exportDiary} onDeleteDiary={deleteDiary} />}
       {selectedMemory && <MemoryDetail memory={selectedMemory} onClose={() => setSelectedMemory(null)} onDiary={() => { setSelectedDiary(diary[0]); setPage('Diary'); setSelectedMemory(null) }} />}
       <footer className="app-footer"><span>Memory is a place to return to yourself.</span><span><LockKeyhole size={12} /> Your moments stay yours</span></footer>
     </main>

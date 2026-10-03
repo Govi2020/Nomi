@@ -131,6 +131,16 @@ def entries(limit: int = Query(default=200, ge=1, le=1000), offset: int = Query(
     return db.list_entries(limit, offset)
 
 
+@app.get("/api/people")
+def people(limit: int = Query(default=10, ge=1, le=100)):
+    return db.get_people(limit)
+
+
+@app.get("/api/tasks")
+def tasks(limit: int = Query(default=8, ge=1, le=50)):
+    return db.get_tasks(limit)
+
+
 @app.delete("/api/entries")
 def delete_all_entries():
     result = db.delete_all_entries()

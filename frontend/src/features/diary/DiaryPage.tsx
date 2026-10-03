@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArtificialIntelligence, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Code as Code2, Compass, Feather, List, Mic, MicOff, Paperclip, Add as Plus, Search, Sparkles, Underline, Cancel as X } from '../../components/icons'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { ArtificialIntelligence, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Code as Code2, Compass, Feather, List, Mic, MicOff, Paperclip, Add as Plus, RotateCcw, Search, Sparkles, Underline, Cancel as X } from '../../components/icons'
 import type { DiaryEntry } from '../../types'
 import { aiService } from '../../services/aiService'
 import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
-import { type AudioFrame, mergeOverlappingTranscript } from './transcript'
+import { type AudioFrame, mergeOverlappingTranscript, sanitizeTranscribedText } from './transcript'
 import { PageHeading } from '../../components/PageHeading'
 import { energyOptions, moodOptions } from '../../services/userPreferences'
 
@@ -23,7 +23,7 @@ function NotebookPreferenceSelect({ id, label, value, options, onChange }: { id:
   </details>
 }
 
-export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaultMood, defaultEnergy, spellCheck, editorTextSize }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string; defaultMood: string; defaultEnergy: string; spellCheck: boolean; editorTextSize: number }) {
+export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaultMood, defaultEnergy, spellCheck, editorTextSize, onDelete }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string; defaultMood: string; defaultEnergy: string; spellCheck: boolean; editorTextSize: number; onDelete: (entry: DiaryEntry) => Promise<void> }) {
   const [search, setSearch] = useState('')
   const [attachment, setAttachment] = useState('')
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
@@ -32,6 +32,8 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
   const [feedbackError, setFeedbackError] = useState('')
   const [feedbackAction, setFeedbackAction] = useState<'dig_deeper' | 'get_perspective' | null>(null)
   const [feedbackKind, setFeedbackKind] = useState<'dig_deeper' | 'get_perspective' | null>(null)
+  const [inlineDigDeeper, setInlineDigDeeper] = useState(false)
+  const [inlinePrompt, setInlinePrompt] = useState('')
   const feedbackRequestRef = useRef(0)
   const saveRequestRef = useRef(0)
   const editorRef = useRef<HTMLTextAreaElement | null>(null)
@@ -52,8 +54,10 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
   const dictationStopRequestedRef = useRef(false)
   const dictationTimerRef = useRef<number | null>(null)
   const dictationActiveRef = useRef(false)
+  const lastDictationInsertionRef = useRef<{ entryId: string; start: number; text: string } | null>(null)
   const [dictating, setDictating] = useState(false)
   const [dictationMessage, setDictationMessage] = useState('')
+  const [canUndoDictation, setCanUndoDictation] = useState(false)
 
   const persistEntry = (entry: DiaryEntry) => {
     const requestId = ++saveRequestRef.current
@@ -82,11 +86,16 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
 
   const appendDictationText = (text: string) => {
     const current = selectedEntryRef.current
-    const addition = text.trim()
+    const addition = sanitizeTranscribedText(text)
     if (!current || !addition) return
     const separator = current.content && !/[\s\n]$/.test(current.content) ? ' ' : ''
-    const updated = { ...current, content: `${current.content}${separator}${addition}` }
+    const insertion = `${separator}${addition}`
+    const updated = { ...current, content: `${current.content}${insertion}` }
     if (updated.id === 'new') updated.id = `d${Date.now()}`
+    lastDictationInsertionRef.current = { entryId: updated.id, start: current.content.length, text: insertion }
+    setCanUndoDictation(true)
+    feedbackRequestRef.current += 1
+    setInlinePrompt('')
     selectedEntryRef.current = updated
     onSelect(updated)
     persistEntry(updated)
@@ -150,11 +159,11 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     dictationInferenceRef.current = true
     setDictationMessage(final ? 'Transcribing the final words locally...' : 'Transcribing speech locally...')
     try {
-      const transcript = await transcribePcm(audio, sampleRate, setDictationMessage)
+      const transcript = sanitizeTranscribedText(await transcribePcm(audio, sampleRate, setDictationMessage))
       if (transcript) {
         const merged = mergeOverlappingTranscript(dictationTranscriptRef.current, transcript)
-        const addition = merged.slice(dictationTranscriptRef.current.length).trim()
-        dictationTranscriptRef.current = merged
+        const addition = sanitizeTranscribedText(merged.slice(dictationTranscriptRef.current.length).trim())
+        dictationTranscriptRef.current = sanitizeTranscribedText(merged) || ''
         appendDictationText(addition)
       }
       dictationTranscribedUntilRef.current = end
@@ -318,6 +327,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     setFeedbackError('')
     setFeedbackAction(null)
     setFeedbackKind(null)
+    setInlinePrompt('')
     const updated = { ...current, ...changes }
     if (updated.id === 'new' && (updated.title.trim() || updated.content.trim())) updated.id = `d${Date.now()}`
     selectedEntryRef.current = updated
@@ -336,6 +346,80 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     updateEntry({ content })
     requestAnimationFrame(() => { editor.focus(); editor.setSelectionRange(start + before.length, start + before.length + (selectedText || 'text').length) })
   }
+
+  const handleInlineDigDeeper = async () => {
+    const editor = editorRef.current
+    if (!editor || !selected) return
+
+    const cursor = editor.selectionStart
+    const beforeCursor = selected.content.slice(0, cursor)
+    const sentenceStart = beforeCursor.slice(0, -1).lastIndexOf('.') + 1
+    const phrase = beforeCursor.slice(sentenceStart).trim()
+    const requestId = ++feedbackRequestRef.current
+    setFeedbackKind('dig_deeper')
+    setFeedback('')
+    setFeedbackError('')
+    setInlinePrompt('')
+    setFeedbackAction(null)
+
+    if (!phrase.trim()) {
+      setFeedbackError('Place the cursor in a sentence or highlight the text you want to explore.')
+      return
+    }
+
+    setFeedbackAction('dig_deeper')
+    try {
+      const response = await aiService.getWritingFeedback('dig_deeper', { title: selected.title, content: phrase })
+      if (requestId !== feedbackRequestRef.current || !inlineDigDeeper) return
+      setInlinePrompt(response.trim())
+    } catch (error) {
+      if (requestId === feedbackRequestRef.current) {
+        setFeedbackError(error instanceof Error ? error.message : 'AI reflection is unavailable right now.')
+      }
+    } finally {
+      if (requestId === feedbackRequestRef.current) setFeedbackAction(null)
+    }
+  }
+
+  const toggleInlineDigDeeper = () => {
+    if (inlineDigDeeper) {
+      feedbackRequestRef.current += 1
+      setInlineDigDeeper(false)
+      setInlinePrompt('')
+      setFeedback('')
+      setFeedbackError('')
+      setFeedbackAction(null)
+      setFeedbackKind(null)
+      return
+    }
+    setInlineDigDeeper(true)
+    setInlinePrompt('')
+    setFeedback('')
+    setFeedbackError('')
+    setFeedbackAction(null)
+    setFeedbackKind(null)
+  }
+  const undoLastDictation = () => {
+    const insertion = lastDictationInsertionRef.current
+    const current = selectedEntryRef.current
+    if (!insertion || !current || current.id !== insertion.entryId) return
+    const end = insertion.start + insertion.text.length
+    if (current.content.slice(insertion.start, end) !== insertion.text) {
+      setDictationMessage('The latest dictated text changed, so it could not be undone safely.')
+      return
+    }
+    const updated = { ...current, content: `${current.content.slice(0, insertion.start)}${current.content.slice(end)}` }
+    lastDictationInsertionRef.current = null
+    setCanUndoDictation(false)
+    setDictationMessage('Last dictated text undone.')
+    selectedEntryRef.current = updated
+    onSelect(updated)
+    persistEntry(updated)
+    requestAnimationFrame(() => {
+      if (document.activeElement !== editorRef.current) return
+      editorRef.current?.setSelectionRange(insertion.start, insertion.start)
+    })
+  }
   const insertList = () => {
     const editor = editorRef.current
     if (!editor || !selected) return
@@ -344,7 +428,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     updateEntry({ content })
     requestAnimationFrame(() => { editor.focus(); editor.setSelectionRange(start + 3, start + 3) })
   }
-  const requestFeedback = async (action: 'dig_deeper' | 'get_perspective') => {
+  const requestFeedback = async (action: 'dig_deeper' | 'get_perspective', context?: { before: string; after: string; cursor: number }) => {
     if (!selected?.content.trim()) {
       setFeedbackError('Write a little about this moment first.')
       setFeedback('')
@@ -356,14 +440,46 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     setFeedbackError('')
     setFeedback('')
     try {
-      const response = await aiService.getWritingFeedback(action, { title: selected.title, content: selected.content })
-      if (feedbackRequestRef.current === requestId) setFeedback(response)
+      const content = context ? `${context.before}${context.after}`.trim() || selected.content : selected.content
+      const response = await aiService.getWritingFeedback(action, { title: selected.title, content })
+      if (feedbackRequestRef.current !== requestId) return
+      if (context && response && action === 'dig_deeper') {
+        const insertion = response.trim()
+        const before = context.before || ''
+        const after = context.after || ''
+        const nextText = `${before}${insertion}${after}`
+        const updated = { ...selected, content: nextText }
+        selectedEntryRef.current = updated
+        onSelect(updated)
+        persistEntry(updated)
+        return
+      }
+      setFeedback(response)
     } catch (error) {
       if (feedbackRequestRef.current === requestId) setFeedbackError(error instanceof Error ? error.message : 'AI feedback is unavailable right now. Check the backend connection and try again.')
     } finally {
       if (feedbackRequestRef.current === requestId) setFeedbackAction(null)
     }
   }
+
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const handleDeleteEntry = async (event: MouseEvent<HTMLButtonElement>, entry: DiaryEntry) => {
+    event.stopPropagation()
+    if (!window.confirm(`Delete "${entry.title || 'Untitled entry'}"?`)) return
+    setDeletingId(entry.id)
+    try {
+      await onDelete(entry)
+      onSelect(null)
+      setAttachment('')
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not delete this entry.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const filteredDiary = diary.filter(entry => `${entry.title} ${entry.content} ${entry.date}`.toLowerCase().includes(search.toLowerCase()))
 
   if (selected) return <> <section className="page-content diary-notebook">
     <button className="back-link diary-back-link" onClick={() => { saveRequestRef.current += 1; if (dictationActiveRef.current) stopDictation(); onSelect(null) }}><ChevronLeft size={15} /> All diary entries</button>
@@ -372,31 +488,35 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
       <div className="notebook-preference-field"><span>Feeling</span><NotebookPreferenceSelect id="notebook-mood" label="Feeling" value={selected.mood || defaultMood} options={moodOptions} onChange={mood => updateEntry({ mood })} /></div>
       <div className="notebook-preference-field"><span>Energy</span><NotebookPreferenceSelect id="notebook-energy" label="Energy" value={selected.energy || defaultEnergy} options={energyOptions} onChange={energy => updateEntry({ energy })} /></div>
     </div>
-    <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck={spellCheck} style={{ fontSize: `${editorTextSize}px` }} /></div>
+    <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck={spellCheck} style={{ fontSize: `${editorTextSize}px`, lineHeight: '48px' }} onKeyUp={event => { if (inlineDigDeeper && event.key === '.' && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) void handleInlineDigDeeper() }} /></div>
+    {inlineDigDeeper && (inlinePrompt || feedbackError || feedbackAction === 'dig_deeper') && <div className="diary-inline-prompt" role="status" aria-live="polite"><div className="diary-inline-prompt-head"><Brain size={14} /> <span>{feedbackAction === 'dig_deeper' ? 'Thinking…' : 'Dig deeper'}</span></div>{inlinePrompt && <p>{inlinePrompt}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}<button type="button" onClick={() => { setInlineDigDeeper(false); setInlinePrompt(''); setFeedbackError(''); setFeedbackKind(null); feedbackRequestRef.current += 1 }}>Close</button></div>}
     {saveError && <p className="diary-save-error" role="alert">Could not save this entry: {saveError}</p>}
     {dictationMessage && <span className="notebook-sr-status" role="status">{dictationMessage}</span>}
     {attachment && <div className="notebook-attachment"><Paperclip size={13} />{attachment}<button onClick={() => setAttachment('')} aria-label="Remove attachment"><X size={13} /></button></div>}
 
   </section>
-      {(feedback || feedbackError || feedbackAction) && <aside className="diary-ai-feedback" aria-live="polite"><div className="diary-ai-feedback-heading"><ArtificialIntelligence size={15} /><span>{feedbackAction ? 'Thinking about your entry…' : feedbackError ? 'A moment for reflection' : feedbackKind === 'dig_deeper' ? 'Dig deeper' : 'A different perspective'}</span></div>{feedback && <p>{feedback}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}</aside>}
+      {feedbackKind !== 'dig_deeper' && (feedback || feedbackError || feedbackAction) && <aside className="diary-ai-feedback" aria-live="polite"><div className="diary-ai-feedback-heading"><ArtificialIntelligence size={15} /><span>{feedbackAction ? 'Thinking about your entry…' : feedbackError ? 'A moment for reflection' : 'A different perspective'}</span></div>{feedback && <p>{feedback}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}</aside>}
 
     <div className="notebook-toolbar" role="toolbar" aria-label="Diary writing tools">
-      <div className="notebook-ai-actions" role="group" aria-label="AI reflection tools"><button type="button" onClick={() => requestFeedback('dig_deeper')} disabled={feedbackAction !== null} title="Dig deeper"><Brain size={16} /><span>{feedbackAction === 'dig_deeper' ? 'Thinking…' : 'Dig deeper'}</span></button><button type="button" onClick={() => requestFeedback('get_perspective')} disabled={feedbackAction !== null} title="Get perspective"><Compass size={16} /><span>{feedbackAction === 'get_perspective' ? 'Thinking…' : 'Get perspective'}</span></button></div>
-      <span className="notebook-tool-divider" aria-hidden="true" /><div className="notebook-tool-group" role="group" aria-label="Text formatting"><button type="button" title="Underline" aria-label="Underline selection" onClick={() => addFormatting('<u>', '</u>')}><Underline size={17} /></button><button type="button" title="Bulleted list" aria-label="Insert bulleted list" onClick={insertList}><List size={18} /></button><button type="button" title="Code" aria-label="Wrap in code marks" onClick={() => addFormatting('`')}><Code2 size={17} /></button></div>
+      <div className="notebook-ai-actions" role="group" aria-label="AI reflection tools"><button type="button" className={inlineDigDeeper ? 'is-active' : ''} onClick={() => { void toggleInlineDigDeeper() }} title="Toggle inline dig deeper" aria-pressed={inlineDigDeeper}><Brain size={16} /><span>{inlineDigDeeper ? 'Inline on' : 'Dig deeper'}</span></button><button type="button" onClick={() => requestFeedback('get_perspective')} disabled={feedbackAction !== null} title="Get perspective"><Compass size={16} /><span>{feedbackAction === 'get_perspective' ? 'Thinking…' : 'Get perspective'}</span></button></div>
+      <span className="notebook-tool-divider" aria-hidden="true" /><div className="notebook-tool-group" role="group" aria-label="Notebook editing tools"><button type="button" title="Underline" aria-label="Underline selection" onClick={() => addFormatting('<u>', '</u>')}><Underline size={17} /></button><button type="button" title="Bulleted list" aria-label="Insert bulleted list" onClick={insertList}><List size={18} /></button><button type="button" title="Code" aria-label="Wrap in code marks" onClick={() => addFormatting('`')}><Code2 size={17} /></button><button type="button" title="Undo latest voice transcription" aria-label="Undo latest voice transcription" disabled={!canUndoDictation || lastDictationInsertionRef.current?.entryId !== selected.id} onClick={undoLastDictation}><RotateCcw size={17} /></button></div>
       <span className="notebook-tool-spacer" /><label className="notebook-attach" title="Attach a file" aria-label="Attach a file"><Paperclip size={16} /><span>Attach</span><input type="file" onChange={event => setAttachment(event.target.files?.[0]?.name ?? '')} /></label><span className="notebook-tool-divider notebook-attach-divider" aria-hidden="true" /><button type="button" className={`notebook-mic ${dictating ? 'is-listening' : ''}`} title={dictating ? 'Stop live dictation' : 'Start live dictation'} aria-label={dictating ? 'Stop live dictation — microphone on' : 'Start live dictation — microphone off'} aria-pressed={dictating} onClick={() => dictating ? stopDictation() : startDictation()}>{dictating ? <Mic size={17} /> : <MicOff size={17} />}<span className="notebook-mic-label" aria-hidden="true">{dictating ? 'Listening' : 'Mic off'}</span></button>
     </div>
   </>
 
-
-  const filteredDiary = diary.filter(entry => `${entry.title} ${entry.content} ${entry.date}`.toLowerCase().includes(search.toLowerCase()))
   return <section className="page-content diary-library">
     <PageHeading eyebrow="YOUR OWN WORDS, HELD GENTLY" title="Your diary" subtitle="A space for your thoughts, plans, and everything in between." />
     <button className="diary-new-entry" onClick={createEntry}><Plus size={19} /><span>New entry</span><ChevronRight size={16} /></button>
     <label className="diary-search"><Search size={15} /><input aria-label="Search entries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search entries" /><span>{filteredDiary.length} entries</span></label>
     {loadError && <p className="diary-load-error" role="alert">Could not load diary entries: {loadError}</p>}
-    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <button className="diary-library-row" onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry); setAttachment('') }} key={entry.id}>
-      <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entry.title || 'Untitled entry'}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
-    </button>)}</div> : loadError ? null : <div className="diary-library-empty"><div className="note-mark">“</div><h3>{search ? 'No entries found.' : 'Your diary is waiting.'}</h3><p>{search ? 'Try a different search.' : 'Start with one small moment from today.'}</p></div>}
+    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <div className="diary-library-row" key={entry.id} onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry); setAttachment('') }}>
+      <button type="button" className="diary-library-entry" aria-label={`Open ${entry.title || 'Untitled entry'}`}>
+        <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entry.title || 'Untitled entry'}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
+      </button>
+      <button type="button" className="diary-library-delete" aria-label={`Delete ${entry.title || 'Untitled entry'}`} disabled={deletingId === entry.id} onClick={event => void handleDeleteEntry(event, entry)}>
+        {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+      </button>
+    </div>)}</div> : loadError ? null : <div className="diary-library-empty"><div className="note-mark">“</div><h3>{search ? 'No entries found.' : 'Your diary is waiting.'}</h3><p>{search ? 'Try a different search.' : 'Start with one small moment from today.'}</p></div>}
     <aside className="diary-library-note"><span>✳</span>These are your moments, in your own words.</aside>
   </section>
 }
