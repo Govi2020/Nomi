@@ -120,7 +120,7 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
         <label className="settings-check"><input type="checkbox" checked={preferences.spellCheck} onChange={event => onPreferenceChange({ spellCheck: event.target.checked })} /><span><b>Spell check while writing</b><small>Use your browser’s spelling suggestions in the diary editor.</small></span></label>
       </section>
       <section className="settings-section" aria-labelledby="settings-voice">
-        <div className="settings-section-heading"><h2 id="settings-voice">Voice and dictation</h2><p>Talk replies use the warmest available English voice on this device. Dictation is processed locally.</p></div>
+        <div className="settings-section-heading"><h2 id="settings-voice">Voice and dictation</h2><p>Talk replies use the Kokoro American English voice in your browser. Diary dictation runs locally; Talk speech input is processed by your configured backend.</p></div>
         <label className="settings-check"><input type="checkbox" checked={preferences.voiceReplies} onChange={event => onPreferenceChange({ voiceReplies: event.target.checked })} /><span><b>Speak replies in Talk to Me</b><small>Voice replies can also be muted directly from the Talk to Me page.</small></span></label>
         <div className="settings-control-row settings-rate-row"><label htmlFor="speech-rate">Speaking pace</label><select id="speech-rate" value={preferences.speechRate} onChange={event => onPreferenceChange({ speechRate: Number(event.target.value) })}><option value={0.85}>Slower</option><option value={0.94}>Natural</option><option value={1.05}>Faster</option></select></div>
       </section>
@@ -195,7 +195,7 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
           </article>
         </>}
       </section>
-      <div className="privacy-note-large"><LockKeyhole size={17} /><p>Diary dictation uses Whisper Tiny locally. Talk audio is sent to the configured backend for Parakeet TDT transcription; the model downloads from Hugging Face there on first use. Manage microphone access in your browser’s site settings.</p></div>
+      <div className="privacy-note-large"><LockKeyhole size={17} /><p>Diary dictation uses Whisper Tiny locally. Talk speech input is sent to your configured backend for Parakeet TDT transcription; Kokoro generates spoken replies in your browser after downloading its model from Hugging Face on first use. Manage microphone access in your browser’s site settings.</p></div>
     </>}
   </section>
 }
