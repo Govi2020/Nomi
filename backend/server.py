@@ -1,6 +1,8 @@
 import asyncio
 import shutil
+import subprocess
 import uuid
+from typing import Literal
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -33,6 +35,11 @@ class EntryUpdate(BaseModel):
 
 class ChatIn(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+
+
+class WritingFeedbackIn(BaseModel):
+    action: Literal["dig_deeper", "get_perspective"]
+    content: str = Field(min_length=1, max_length=200000)
 
 
 @app.on_event("startup")
@@ -131,6 +138,17 @@ async def follow_up(entry_id: int):
     return {"question": await insights.follow_up(entry_id)}
 
 
+@app.post("/api/ai/feedback")
+async def writing_feedback(body: WritingFeedbackIn):
+    if not body.content.strip():
+        raise HTTPException(status_code=422, detail="Journal text is required.")
+    try:
+        feedback = await insights.writing_feedback(body.action, body.content)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=f"AI feedback is unavailable: {exc}") from exc
+    return {"feedback": feedback}
+
+
 @app.get("/api/search")
 def search(q: str = Query(default=""), limit: int = Query(default=50, ge=1, le=1000)):
     return db.search_entries(q, limit)
@@ -153,25 +171,24 @@ async def transcribe(file: UploadFile = File(...)):
     try:
         with temporary.open("wb") as output:
             shutil.copyfileobj(file.file, output)
-        process = await asyncio.create_subprocess_exec(
-            cli,
-            "-m", config.WHISPER_MODEL,
-            "-f", str(temporary),
-            "-l", config.WHISPER_LANG,
-            "-nt",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+
+        def run_whisper() -> subprocess.CompletedProcess[bytes]:
+            return subprocess.run(
+                [cli, "-m", config.WHISPER_MODEL, "-f", str(temporary), "-l", config.WHISPER_LANG, "-nt"],
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=180)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            raise HTTPException(status_code=504, detail="Whisper transcription timed out.")
-        if process.returncode:
-            detail = stderr.decode(errors="replace")[-500:]
+            result = await asyncio.wait_for(asyncio.to_thread(run_whisper), timeout=190)
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(status_code=504, detail="Whisper transcription timed out.") from exc
+
+        if result.returncode:
+            detail = result.stderr.decode(errors="replace")[-500:]
             raise HTTPException(status_code=500, detail=f"Whisper failed: {detail}")
-        return {"text": stdout.decode(errors="replace").strip()}
+        return {"text": result.stdout.decode(errors="replace").strip()}
     finally:
         temporary.unlink(missing_ok=True)
         await file.close()

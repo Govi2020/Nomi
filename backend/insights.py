@@ -1,3 +1,5 @@
+import re
+
 from . import config, db, ollama_client
 from .rag import _retrieve
 
@@ -9,6 +11,17 @@ similarity score and shared tags/people). Write EXACTLY ONE follow-up question t
 - is a single plain-text sentence ending with "?".
 Do not invent facts about the person. A superficial link (e.g. only 'same person wrote both') is NOT a real
 connection. If the past entries do not clearly relate to today's entry, reply with exactly: none"""
+
+DEEPER_PROMPT = """You are a thoughtful, emotionally attuned journaling companion.
+Respond to the person's latest journal thoughts with one or two concise, open-ended questions.
+Use their exact situation and feeling as context; do not merely repeat or paraphrase their words.
+Be curious and nonjudgmental, do not diagnose, assume motives, or minimize feelings.
+If the person describes hurting someone, ask what was happening for them and what led up to the moment,
+without excusing harm or escalating blame. Return only the question or questions, with no preamble."""
+
+PERSPECTIVE_PROMPT = """You are a thoughtful journaling companion. Offer one gentle alternative perspective grounded only
+in the person's latest journal thoughts, then ask one open-ended question. Do not diagnose, make assumptions,
+or dismiss their feelings. Return only the perspective and question, with no preamble."""
 
 
 def _first_question(answer):
@@ -55,3 +68,18 @@ async def follow_up(entry_id):
         return _first_question(answer)
     except RuntimeError:
         return None
+
+
+async def writing_feedback(action, content):
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", content.strip()) if part.strip()]
+    recent = " ".join(sentences[-2:])
+    recent = recent[-1500:]
+    if not recent:
+        raise ValueError("Journal text is required.")
+
+    prompt = DEEPER_PROMPT if action == "dig_deeper" else PERSPECTIVE_PROMPT
+    result = await ollama_client.chat(prompt, f"Latest journal sentences:\n{recent}", temperature=0.7)
+    feedback = result.strip().strip('"“”')
+    if not feedback:
+        raise RuntimeError("The AI returned no reflection.")
+    return feedback[:1000]
