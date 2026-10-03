@@ -7,12 +7,8 @@ DB_PATH = DATA_DIR / "journal.db"
 AUDIO_DIR = DATA_DIR / "audio"
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "qwen2.5:7b")
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "maxwell1500/psycho")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-
-WHISPER_CLI = os.environ.get("WHISPER_CLI", "").strip()
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "").strip()
-WHISPER_LANG = os.environ.get("WHISPER_LANG", "en")
 
 LINK_SIM_THRESHOLD = float(os.environ.get("LINK_SIM_THRESHOLD", "0.35"))
 REL_SIM_THRESHOLD = float(os.environ.get("REL_SIM_THRESHOLD", "0.20"))

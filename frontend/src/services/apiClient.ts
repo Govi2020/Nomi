@@ -58,20 +58,4 @@ export const apiClient = {
     }
     return response.json() as Promise<T>
   },
-  async postFile<T>(path: string, file: Blob, filename: string): Promise<T> {
-    const body = new FormData()
-    body.append('file', file, filename)
-    const response = await fetch(`${baseUrl}${path}`, { method: 'POST', body })
-    if (!response.ok) {
-      let message = `Request failed (${response.status})`
-      try {
-        const error = await response.json() as { detail?: string }
-        if (error.detail) message = error.detail
-      } catch {
-        // Preserve the HTTP status when the backend does not return JSON.
-      }
-      throw new Error(message)
-    }
-    return response.json() as Promise<T>
-  },
 }

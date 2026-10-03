@@ -179,18 +179,18 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
 
   useEffect(() => {
     let active = true
-    updatePhase('loading', 'Preparing Parakeet TDT on the configured backend...')
+    updatePhase('loading', 'Preparing local Whisper in this browser...')
     void talkTranscriptionService.prepare(message => {
       if (active) setStatus(message)
     }).then(() => {
       if (!active) return
       setModelReady(true)
-      if (phaseRef.current === 'loading') updatePhase('idle', 'Parakeet TDT is ready on the backend. Talk whenever you like.')
+      if (phaseRef.current === 'loading') updatePhase('idle', 'Local Whisper is ready. Talk whenever you like.')
     }).catch(error => {
       if (active) {
         updatePhase('error', error instanceof Error
-          ? `Parakeet TDT is unavailable: ${error.message}`
-          : 'Parakeet TDT is unavailable.')
+          ? `Local Whisper is unavailable: ${error.message}`
+          : 'Local Whisper is unavailable.')
       }
     })
     return () => {
@@ -418,7 +418,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     }).catch(error => {
       interimLastEndRef.current = end
       interimNextAtRef.current = end + Math.round(sampleRateRef.current * INTERIM_STRIDE_SECONDS)
-      setStatus(error instanceof Error ? `Parakeet is catching up: ${error.message}` : 'Parakeet is catching up.')
+      setStatus(error instanceof Error ? `Whisper is catching up: ${error.message}` : 'Whisper is catching up.')
     }).finally(() => {
       interimTaskRef.current = null
       if (phaseRef.current === 'recording' && !finalizingRef.current) {
@@ -627,7 +627,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
       microphoneStartingRef.current = false
       listeningRef.current = true
       if (phaseRef.current !== 'speaking' && phaseRef.current !== 'thinking') {
-        updatePhase('listening', modelReady ? 'Hold Space and speak, or press and hold the mic.' : 'Loading Parakeet TDT on the backend...')
+        updatePhase('listening', modelReady ? 'Hold Space and speak, or press and hold the mic.' : 'Loading local Whisper in this browser...')
       }
       if (!pushHeldRef.current) releasePushToTalk()
     } catch (error) {
@@ -663,7 +663,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
     releaseAudioCapture()
     utteranceRef.current = []
     utteranceSamplesRef.current = 0
-    updatePhase('idle', modelReady ? 'Ready for your next thought.' : 'Parakeet TDT is still loading on the backend.')
+    updatePhase('idle', modelReady ? 'Ready for your next thought.' : 'Local Whisper is still loading in this browser.')
   }
 
   const clearConversation = () => {
@@ -784,7 +784,7 @@ export function TalkToMePage({ voiceReplies, speechRate, onVoiceRepliesChange }:
         <button className="talk-icon-button" onClick={clearConversation} aria-label="Clear conversation" title="Clear conversation"><RotateCcw size={17} /></button>
       </div>
     </div>
-    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Speech input is sent to your configured backend for Parakeet TDT transcription. Spoken replies use Kokoro in this browser; the model downloads from Hugging Face on first use.</span></div>
+    <div className="talk-privacy"><span className="talk-privacy-dot" /><span>Microphone audio is transcribed locally in this browser with Whisper and is not uploaded for transcription. Your transcript is sent to the configured backend for a reply. Spoken replies use Kokoro in this browser; both browser models download from Hugging Face on first use.</span></div>
     <div className="talk-transcript" ref={scrollRef} aria-live="polite" aria-label="Conversation">
       {turns.map(turn => <article className={`talk-turn ${turn.role === 'assistant' ? 'assistant-turn' : 'user-turn'}`} key={turn.id}>
         <span className="talk-turn-label">{turn.role === 'assistant' ? 'MEMORY' : 'YOU'}{turn.memoryUsed && <small>REMEMBERED</small>}{turn.interrupted && <small>INTERRUPTED</small>}</span>

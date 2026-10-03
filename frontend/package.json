@@ -16,7 +16,6 @@
     "@vitejs/plugin-react": "latest",
     "gsap": "^3.15.0",
     "kokoro-js": "^1.2.1",
-    "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "^4.1.0",

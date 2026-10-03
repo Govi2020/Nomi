@@ -1,6 +1,6 @@
 import type { DiaryEntry, Memory } from '../types'
-import { sanitizeTranscribedText } from '../features/diary/transcript'
 import { apiClient } from './apiClient'
+import { transcribePcm } from './localTranscriptionService'
 
 const memories: Memory[] = [
   { id: 'm1', content: 'Started building the AI journaling companion for the hackathon. The idea finally feels like something I can make real.', date: 'Oct 1 · 10:42 AM', topics: ['Hackathon', 'AI', 'Development'], project: 'Memory', people: ['Arun'], source: { kind: 'Voice recording', date: 'Oct 1', id: 'r1' }, importance: 0.86, confidence: 0.94 },
@@ -70,7 +70,7 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
   return save
 }
 
-async function audioToWav(blob: Blob) {
+async function audioToPcm(blob: Blob) {
   const context = new AudioContext()
   try {
     const audio = await context.decodeAudioData(await blob.arrayBuffer())
@@ -80,36 +80,15 @@ async function audioToWav(blob: Blob) {
       for (let index = 0; index < audio.length; index++) samples[index] += channelData[index] / audio.numberOfChannels
     }
 
-    const wav = new ArrayBuffer(44 + samples.length * 2)
-    const view = new DataView(wav)
-    const writeText = (offset: number, text: string) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)))
-    writeText(0, 'RIFF')
-    view.setUint32(4, 36 + samples.length * 2, true)
-    writeText(8, 'WAVE')
-    writeText(12, 'fmt ')
-    view.setUint32(16, 16, true)
-    view.setUint16(20, 1, true)
-    view.setUint16(22, 1, true)
-    view.setUint32(24, audio.sampleRate, true)
-    view.setUint32(28, audio.sampleRate * 2, true)
-    view.setUint16(32, 2, true)
-    view.setUint16(34, 16, true)
-    writeText(36, 'data')
-    view.setUint32(40, samples.length * 2, true)
-    for (let index = 0; index < samples.length; index++) {
-      const sample = Math.max(-1, Math.min(1, samples[index]))
-      view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
-    }
-    return new Blob([wav], { type: 'audio/wav' })
+    return { samples, sampleRate: audio.sampleRate }
   } finally {
     await context.close()
   }
 }
 
 async function transcribeAudio(blob: Blob) {
-  const wav = await audioToWav(blob)
-  const result = await apiClient.postFile<{ text?: string }>('/api/transcribe', wav, 'dictation.wav')
-  return sanitizeTranscribedText(result.text ?? '')
+  const { samples, sampleRate } = await audioToPcm(blob)
+  return transcribePcm(samples, sampleRate, () => {})
 }
 
 async function loadAllDiaryEntries() {
@@ -152,7 +131,7 @@ export const memoryService = {
     } catch (error) {
       if (!transcript) throw error
     }
-    if (!transcript) throw new Error('No speech was detected. Check the Whisper backend configuration and try again.')
+    if (!transcript) throw new Error('No speech was detected. Check microphone access and try again.')
 
     const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())
     const entry: DiaryEntry = { id: `d${Date.now()}`, date, title: 'Voice recording', content: transcript, mood: 'Thoughtful', energy: 'Steady', topics: [], people: [], memoryIds: [] }

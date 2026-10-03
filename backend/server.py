@@ -1,8 +1,6 @@
 import asyncio
 import json
 import re
-import shutil
-import subprocess
 import uuid
 from datetime import date
 from typing import Literal
@@ -13,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import config, db, insights, mcp_client, ollama_client, organize, parakeet_transcription, rag, timeline
+from . import config, db, insights, mcp_client, ollama_client, organize, rag, timeline
 
 app = FastAPI(title="Private Journal Backend")
 app.add_middleware(
@@ -118,10 +116,6 @@ async def health():
             "chat_model_ok": chat_ok,
             "embed_model": config.EMBED_MODEL,
             "embed_model_ok": embed_ok,
-        },
-        "whisper": {
-            "cli_found": bool(config.WHISPER_CLI and shutil.which(config.WHISPER_CLI)),
-            "model_set": bool(config.WHISPER_MODEL),
         },
     }
 
@@ -274,67 +268,6 @@ def search(q: str = Query(default=""), limit: int = Query(default=50, ge=1, le=1
 @app.get("/api/graph")
 def graph():
     return db.get_graph()
-
-
-@app.post("/api/talk/transcription/prepare")
-async def prepare_talk_transcription():
-    try:
-        await asyncio.to_thread(parakeet_transcription.prepare_model)
-    except parakeet_transcription.ParakeetUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {"ready": True, "model": parakeet_transcription.MODEL_ID}
-
-
-@app.post("/api/talk/transcription")
-async def transcribe_talk(file: UploadFile = File(...)):
-    try:
-        contents = await file.read(2_000_001)
-        if len(contents) > 2_000_000:
-            raise HTTPException(status_code=413, detail="Talk audio must be 2 MB or smaller.")
-        try:
-            text = await asyncio.to_thread(parakeet_transcription.transcribe_wav, contents)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except parakeet_transcription.ParakeetUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return {"text": text}
-    finally:
-        await file.close()
-
-
-@app.post("/api/transcribe")
-async def transcribe(file: UploadFile = File(...)):
-    if not config.WHISPER_CLI or not config.WHISPER_MODEL:
-        raise HTTPException(status_code=503, detail="Secondary transcription is not configured.")
-    cli = shutil.which(config.WHISPER_CLI)
-    if not cli:
-        raise HTTPException(status_code=503, detail=f"Whisper CLI not found: {config.WHISPER_CLI}")
-    config.ensure_dirs()
-    temporary = config.AUDIO_DIR / f"transcribe-{uuid.uuid4().hex}.wav"
-    try:
-        with temporary.open("wb") as output:
-            shutil.copyfileobj(file.file, output)
-
-        def run_whisper() -> subprocess.CompletedProcess[bytes]:
-            return subprocess.run(
-                [cli, "-m", config.WHISPER_MODEL, "-f", str(temporary), "-l", config.WHISPER_LANG, "-nt"],
-                capture_output=True,
-                timeout=180,
-                check=False,
-            )
-
-        try:
-            result = await asyncio.wait_for(asyncio.to_thread(run_whisper), timeout=190)
-        except asyncio.TimeoutError as exc:
-            raise HTTPException(status_code=504, detail="Whisper transcription timed out.") from exc
-
-        if result.returncode:
-            detail = result.stderr.decode(errors="replace")[-500:]
-            raise HTTPException(status_code=500, detail=f"Whisper failed: {detail}")
-        return {"text": result.stdout.decode(errors="replace").strip()}
-    finally:
-        temporary.unlink(missing_ok=True)
-        await file.close()
 
 
 @app.post("/api/audio/upload")

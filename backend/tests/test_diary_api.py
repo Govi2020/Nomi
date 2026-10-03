@@ -1,16 +1,14 @@
 import asyncio
-from io import BytesIO
 import tempfile
 import unittest
 import json
-import wave
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from backend import config, db, insights, ollama_client, organize, parakeet_transcription
+from backend import config, db, insights, ollama_client, organize
 from backend import server
 from backend.server import app
 
@@ -445,49 +443,6 @@ class DiaryApiTests(unittest.TestCase):
         payload = payloads[0][2]
         self.assertEqual(payload["keep_alive"], "10m")
         self.assertEqual(payload["options"]["num_predict"], 160)
-
-    def test_talk_transcription_prepare_loads_parakeet(self):
-        with patch.object(parakeet_transcription, "prepare_model") as prepare_model:
-            response = self.client.post("/api/talk/transcription/prepare")
-
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {
-            "ready": True,
-            "model": "nvidia/parakeet-tdt-0.6b-v3",
-        })
-        prepare_model.assert_called_once_with()
-
-    def test_talk_transcription_endpoint_uses_parakeet_for_uploaded_audio(self):
-        audio = BytesIO()
-        with wave.open(audio, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(16_000)
-            wav.writeframes(b"\x00\x00" * 16_000)
-        audio_bytes = audio.getvalue()
-
-        with patch.object(
-            parakeet_transcription,
-            "transcribe_wav",
-            return_value="A local Parakeet transcript.",
-        ) as transcribe:
-            response = self.client.post(
-                "/api/talk/transcription",
-                files={"file": ("talk-audio.wav", audio_bytes, "audio/wav")},
-            )
-
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"text": "A local Parakeet transcript."})
-        transcribe.assert_called_once_with(audio_bytes)
-
-    def test_talk_transcription_rejects_invalid_wav(self):
-        response = self.client.post(
-            "/api/talk/transcription",
-            files={"file": ("talk-audio.wav", b"not a wav file", "audio/wav")},
-        )
-
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("valid WAV", response.json()["detail"])
 
     def test_new_ask_chat_endpoint_creates_selectable_chat(self):
         created = self.client.post("/api/ask/chats", json={})

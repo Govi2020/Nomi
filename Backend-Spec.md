@@ -1,4 +1,6 @@
-# Backend Build Specification — Local-First Private Journal with MCP Agent + Moonshine STT
+# Backend Build Specification — Local-First Private Journal
+
+> **Architecture note:** This document contains a historical Electron/Moonshine design specification and is not an exact description of this repository. The current React/Vite app transcribes Diary and Talk audio with a shared browser-local Whisper Tiny pipeline (`frontend/src/services/localTranscriptionService.ts`). It sends Talk transcripts, not microphone audio, to the configured backend. The backend does not provide an audio transcription endpoint.
 
 This is a complete build spec for a **new** project. An LLM or engineer with no access to any other repository should be able to build it end to end by following this document.
 
@@ -54,11 +56,8 @@ Read in `backend/config.py`.
 ```
 JOURNAL_DATA_DIR    default <repo>/data          ; DB + audio root
 OLLAMA_HOST         default http://127.0.0.1:11434
-CHAT_MODEL          default qwen2.5:3b
+CHAT_MODEL          default maxwell1500/psycho
 EMBED_MODEL         default nomic-embed-text
-WHISPER_CLI         default ""                   ; optional secondary STT engine
-WHISPER_MODEL       default ""                   ; optional secondary STT engine
-WHISPER_LANG        default en
 LINK_SIM_THRESHOLD  default 0.35                ; graph edge cut, cosine
 REL_SIM_THRESHOLD   default 0.20                ; retrieval relevance cut
 FOLLOWUP_MIN_SIM    default 0.45                ; gate before asking a follow-up
@@ -149,12 +148,8 @@ DB_PATH = DATA_DIR / "journal.db"
 AUDIO_DIR = DATA_DIR / "audio"
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "qwen2.5:3b")
+CHAT_MODEL = os.environ.get("CHAT_MODEL", "maxwell1500/psycho")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
-
-WHISPER_CLI = os.environ.get("WHISPER_CLI", "").strip()
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "").strip()
-WHISPER_LANG = os.environ.get("WHISPER_LANG", "en")
 
 LINK_SIM_THRESHOLD = float(os.environ.get("LINK_SIM_THRESHOLD", "0.35"))
 REL_SIM_THRESHOLD = float(os.environ.get("REL_SIM_THRESHOLD", "0.20"))
@@ -946,7 +941,7 @@ Pydantic models: `EntryCreate(text: 1..200000, title?, source="text", audio_id?)
 `@app.on_event("startup")` → `db.init_db()`.
 
 ```
-GET    /api/health                    ollama + both models + secondary STT status
+GET    /api/health                    Ollama reachability + configured chat and embedding models
 GET    /api/entries?limit=200&offset=0
 GET    /api/entries/{id}
 POST   /api/entries                   create, then organize + follow-up
@@ -956,7 +951,6 @@ GET    /api/entries/{id}/relateD
 GET    /api/entries/{id}/follow-up
 GET    /api/search?q=&limit=
 GET    /api/graph
-POST   /api/transcribe                audio → text (secondary engine)
 POST   /api/audio/upload              store wav, return audio_id
 GET    /api/audio/{audio_id}          FileResponse
 POST   /api/chat                      → rag.answer_question

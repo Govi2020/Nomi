@@ -1,6 +1,6 @@
 # Memory
 
-A dark, calm frontend prototype for a personal memory and journaling companion. Built with React, TypeScript, Vite, Tailwind CSS, and Lucide React.
+A dark, calm frontend prototype for a personal memory and journaling companion. Built with React, TypeScript, Vite, Tailwind CSS, and Hugeicons.
 
 ## Run locally
 
@@ -22,7 +22,7 @@ The diary loads entries from `GET /api/entries`, creates them with `POST /api/en
 - `src/services/` isolates mock data and async operations from the UI. Diary entries use the FastAPI REST API; other prototype data remains local mock data.
 - `src/styles.css` contains the shared design system and responsive layouts.
 
-The current prototype uses realistic fictional demo data for memories, timelines, and other unconnected views. Diary text entries and Ask AI conversations are read from and saved to the backend. Talk-to-Me speech is transcribed locally in the browser, and its recent conversation stays in the current tab. Recording on the separate “Talk about today” flow captures audio locally with `MediaRecorder`; that session recording can be played from its diary entry and is not uploaded. The app does not provide real authentication, encryption, or broader privacy guarantees.
+The current prototype uses realistic fictional demo data for memories, timelines, and other unconnected views. Diary text entries and Ask AI conversations are read from and saved to the backend. Talk-to-Me uses the same browser-local Whisper Tiny model as diary dictation; microphone audio stays in the browser for transcription, while the transcript is sent to the configured backend for a response. The Whisper and Kokoro models download from Hugging Face on first use and are cached by the browser. Recording on the separate “Talk about today” flow captures audio locally with `MediaRecorder`; that session recording can be played from its diary entry and is not uploaded. The app does not provide real authentication, encryption, or broader privacy guarantees.
 
 ## Main demo flow
 
