@@ -84,7 +84,7 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
 
   const content: Record<string, { eyebrow: string; title: string; subtitle: string; rows: string[] }> = {
     People: { eyebrow: 'THE PEOPLE IN YOUR STORY', title: 'People', subtitle: 'The names that keep resurfacing in your memories.', rows: [] },
-    Tasks: { eyebrow: 'SMALL STEPS, HELD LIGHTLY', title: 'Tasks', subtitle: 'Things you were going to come back to and the ones that still matter.', rows: [] },
+    Tasks: { eyebrow: 'SMALL STEPS, HELD LIGHTLY', title: 'Tasks', subtitle: 'Actionable follow-ups drawn from your diary, shown as tasks instead of diary entries.', rows: [] },
     Settings: { eyebrow: 'YOUR SPACE, YOUR CHOICES', title: 'Settings', subtitle: 'Set up your writing space, voice, and saved data.', rows: [] },
   }
   const data = content[page]
@@ -166,7 +166,7 @@ export function SupportPage({ page, theme, onThemeChange, preferences, onPrefere
   }
 
   const renderTaskRows = () => {
-    if (listLoading) return <div className="support-list"><div className="support-row"><span className="support-index">..</span><span>Checking your recent notes for follow-up tasks…</span></div></div>
+    if (listLoading) return <div className="support-list"><div className="support-row"><span className="support-index">..</span><span>Extracting action items from your diary…</span></div></div>
     if (listError) return <div className="support-list"><div className="support-row"><span className="support-index">!</span><span>{listError}</span></div></div>
     if (!tasks.length) return <div className="support-list"><div className="support-row"><span className="support-index">0</span><span>No active tasks surfaced from your journal yet. A few more entries will make this a much better guide.</span></div></div>
 

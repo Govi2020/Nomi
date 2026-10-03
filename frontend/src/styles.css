@@ -8677,3 +8677,176 @@ body,
         bottom: calc(13px + 62px + 12px);
     }
 }
+
+/* Quiet motion across the app: short page entrances, responsive cards, and tactile controls. */
+@keyframes nomi-page-enter {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nomi-card-enter {
+    from { opacity: 0; transform: translateY(9px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.page-content {
+    animation: nomi-page-enter .32s ease-out both;
+}
+
+.diary-library-row,
+.home-entry-card,
+.home-memory-card,
+.timeline-card,
+.insight-item,
+.support-row,
+.ask-chat-item,
+.recap-card {
+    animation: nomi-card-enter .36s cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.diary-library-row:nth-child(2), .home-recent-grid > :nth-child(2), .insight-list > :nth-child(2) { animation-delay: 35ms; }
+.diary-library-row:nth-child(3), .home-recent-grid > :nth-child(3), .insight-list > :nth-child(3) { animation-delay: 70ms; }
+.diary-library-row:nth-child(4), .home-recent-grid > :nth-child(4), .insight-list > :nth-child(4) { animation-delay: 105ms; }
+.diary-library-row:nth-child(5), .home-recent-grid > :nth-child(5) { animation-delay: 140ms; }
+
+button,
+a,
+[role="button"] {
+    -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+    outline: 2px solid var(--sage2);
+    outline-offset: 3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    button:not(:disabled),
+    a,
+    [role="button"] {
+        transition: transform .18s cubic-bezier(.2, .7, .25, 1), box-shadow .18s ease, filter .18s ease, background-color .18s ease, color .18s ease, border-color .18s ease;
+    }
+
+    button:not(:disabled):hover,
+    a:hover,
+    [role="button"]:hover {
+        filter: brightness(1.045);
+    }
+
+    button:not(:disabled):active,
+    a:active,
+    [role="button"]:active {
+        transform: translateY(0) scale(.985);
+        transition-duration: .08s;
+    }
+
+    .diary-library-row,
+    .home-entry-card,
+    .home-memory-card,
+    .timeline-card,
+    .insight-item,
+    .support-row,
+    .ask-chat-item,
+    .recap-card,
+    .calendar-day-panel {
+        transition: transform .2s cubic-bezier(.2, .7, .25, 1), border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+    }
+
+    .diary-library-row:hover,
+    .home-entry-card:hover,
+    .home-memory-card:hover,
+    .timeline-card:hover,
+    .insight-item:hover,
+    .support-row:hover,
+    .ask-chat-item:hover:not(:disabled),
+    .recap-card:hover,
+    .calendar-day-panel:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+    }
+
+    .diary-new-entry:hover,
+    .settings-secondary-action:hover,
+    .primary-action:hover,
+    .home-write-button:hover,
+    .home-record-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 7px 18px color-mix(in srgb, var(--sage2) 20%, transparent);
+    }
+}
+
+/* Keep notebook rules visible beneath the text in every color theme. */
+.diary-notebook .notebook-writing textarea {
+    background-color: transparent !important;
+    background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 46px,
+        var(--line-soft) 47px,
+        var(--line-soft) 48px
+    ) !important;
+    background-position: 0 1px;
+    color: var(--ink);
+    caret-color: var(--sage2);
+}
+
+/* Treat the open-entry control and its delete action as separate row columns. */
+.diary-library-entry {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+}
+
+.diary-library-entry:hover {
+    background: transparent;
+    filter: none;
+}
+
+.diary-library-delete {
+    flex: 0 0 auto;
+    margin-left: 14px;
+    padding: 7px 11px;
+    border: 1px solid var(--line-soft);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+}
+
+.diary-library-delete:hover:not(:disabled) {
+    border-color: var(--line);
+    background: var(--panel2);
+    color: var(--ink);
+    filter: none;
+}
+
+.diary-library-delete:disabled {
+    opacity: .6;
+    cursor: wait;
+}
+
+@media (max-width: 600px) {
+    .diary-library-row {
+        gap: 8px;
+    }
+
+    .diary-library-entry {
+        gap: 9px;
+    }
+
+    .diary-library-delete {
+        margin-left: 6px;
+        padding: 6px 8px;
+    }
+}

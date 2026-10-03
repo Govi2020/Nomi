@@ -69,14 +69,42 @@ def _sanitize(data):
     }
 
 
+def _fallback_title(text):
+    sentence = re.split(r"(?<=[.!?])\s+", " ".join((text or "").split()), maxsplit=1)[0]
+    words = sentence.split()
+    title = " ".join(words[:9]).strip(" ,;:-")
+    if len(words) > 9:
+        title = title.rstrip(".!?") + "…"
+    title = title[:80]
+    return title[0].upper() + title[1:] if title else "A moment from your diary"
+
+
+def _fallback_summary(text):
+    cleaned = " ".join((text or "").split())
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    summary = " ".join(sentences[:2]).strip()
+    if len(summary) > 500:
+        summary = summary[:497].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+    return summary or None
+
+
 async def organize_entry(entry_id):
     entry = db.get_entry(entry_id)
     if not entry:
         return None
+    fallback_title = _fallback_title(entry.get("text", ""))
+    fallback_summary = _fallback_summary(entry.get("text", ""))
     try:
         vector = np.asarray(await ollama_client.embed(entry["text"]), dtype=np.float32)
     except Exception:
-        db.update_ai_fields(entry_id, summary=entry.get("summary"), mood=entry.get("mood"), organized=False)
+        db.update_ai_fields(
+            entry_id,
+            summary=entry.get("summary") or fallback_summary,
+            mood=entry.get("mood"),
+            organized=False,
+        )
+        if not (entry.get("title") or "").strip():
+            db.update_entry(entry_id, title=fallback_title, ai_fields_only=True)
         return db.get_entry(entry_id)
     db.save_embedding(entry_id, vector, config.EMBED_MODEL)
     try:
@@ -90,6 +118,9 @@ async def organize_entry(entry_id):
     except Exception as exc:
         organized = _sanitize({})
         organized["organize_error"] = str(exc)
+    organized["title"] = organized["title"] or entry.get("title") or fallback_title
+    organized["summary"] = organized["summary"] or entry.get("summary") or fallback_summary
+    organized["mood"] = organized["mood"] or entry.get("mood")
     is_organized = not organized["organize_error"]
     db.update_ai_fields(
         entry_id,
@@ -97,10 +128,11 @@ async def organize_entry(entry_id):
         entry.get("mood") or organized["mood"],
         is_organized,
     )
-    if organized["title"]:
+    if organized["title"] and not (entry.get("title") or "").strip():
         db.update_entry(entry_id, title=organized["title"], ai_fields_only=True)
-    db.set_entry_tags(entry_id, organized["tags"])
-    db.set_entry_entities(entry_id, organized["entities"])
+    if is_organized:
+        db.set_entry_tags(entry_id, organized["tags"])
+        db.set_entry_entities(entry_id, organized["entities"])
     ids, matrix = db.load_all_embeddings()
     db.rebuild_links_for_entry(entry_id, ids, matrix)
     return db.get_entry(entry_id)

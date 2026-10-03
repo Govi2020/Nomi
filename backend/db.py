@@ -264,15 +264,21 @@ def list_entries(limit=200, offset=0):
         return _attach_meta(conn, [_row_to_dict(row) for row in rows])
 
 
-def _task_status_from_text(text):
-    haystack = (text or "").lower()
-    if any(token in haystack for token in ["done", "finished", "completed", "checked off", "resolved", "handled", "wrap up"]):
-        return "done"
-    return "open"
+_TASK_COMMITMENT = re.compile(
+    r"\b(?:i|we)\s+(?:(?:really|still|also|definitely|probably)\s+)*(?:"
+    r"need(?: to)?|have to|should|must|plan to|intend to|hope to|aim to|"
+    r"want to|will|am going to|are going to)\s+(.+)",
+    re.IGNORECASE,
+)
+_TASK_COMPLETION = re.compile(
+    r"\b(?:i|we)\s+(?:already\s+)?(?:finished|completed|did|handled|resolved|"
+    r"took care of)\s+(.+)",
+    re.IGNORECASE,
+)
 
 
-def _task_due_from_entry(title, text, created_at):
-    combined = f"{title or ''} {text or ''}".strip()
+def _task_due_from_entry(text, created_at):
+    combined = (text or "").strip()
     for label in ["tomorrow", "today", "this week", "next week", "later", "soon"]:
         if label.lower() in combined.lower():
             return label.title()
@@ -282,6 +288,23 @@ def _task_due_from_entry(title, text, created_at):
     except (TypeError, ValueError):
         pass
     return "Soon"
+
+
+def _clean_task_phrase(phrase):
+    phrase = re.split(r"\b(?:because|so that|since|but|although)\b", phrase, maxsplit=1, flags=re.IGNORECASE)[0]
+    phrase = re.sub(r"^(?:to\s+)?", "", phrase, flags=re.IGNORECASE)
+    phrase = re.sub(r"^(?:also|still|really|finally|eventually|maybe|probably)\s+", "", phrase, flags=re.IGNORECASE)
+    phrase = re.sub(r"\s+", " ", phrase).strip(" \t\r\n.,;:!?\"'()")
+    return phrase
+
+
+def _task_title(phrase):
+    phrase = _clean_task_phrase(phrase)
+    if not phrase or len(phrase.split()) < 2:
+        return ""
+    # A task should read as the action itself, not as the original diary sentence.
+    phrase = phrase[:1].upper() + phrase[1:]
+    return phrase[:100].rstrip(" ,;:")
 
 
 def get_people(limit=10):
@@ -345,44 +368,39 @@ def get_people(limit=10):
 
 def get_tasks(limit=8):
     limit = max(1, min(int(limit), 50))
-    task_markers = [
-        "need to", "have to", "should", "must", "i need to", "i should",
-        "i have to", "before", "tomorrow", "this week", "next week",
-        "call ", "email ", "book ", "submit ", "check in with", "ask about",
-        "finish ", "clean ", "prepare ", "sort ", "take ", "call",
-    ]
     with closing(connect()) as conn:
         rows = conn.execute(
-            "SELECT id, title, summary, text, created_at FROM entries ORDER BY created_at DESC, id DESC LIMIT ?",
-            (limit * 10,),
+            "SELECT id, title, summary, text, created_at FROM entries ORDER BY created_at DESC, id DESC LIMIT 500"
         ).fetchall()
         tasks = []
+        seen = set()
         for row in rows:
-            combined = f"{row['title'] or ''} {row['summary'] or ''} {row['text'] or ''}".strip()
-            haystack = combined.lower()
-            explicit = any(marker in haystack for marker in task_markers)
-            if not explicit:
-                continue
-            if re.search(r"\b(i|we|you) (?:need to|have to|should|must)\b", haystack):
-                explicit = True
-            if not explicit:
-                continue
-            task_title = (row["title"] or row["summary"] or row["text"] or "Untitled task").strip()
-            task_summary = (row["summary"] or row["text"] or "").strip()
-            if len(task_summary) > 180:
-                task_summary = task_summary[:177].rstrip() + "..."
-            if not task_summary:
-                task_summary = "A follow-up task surfaced from your journal."
-            tasks.append({
-                "id": str(row["id"]),
-                "title": task_title[:90],
-                "due": _task_due_from_entry(row["title"], row["text"], row["created_at"]),
-                "status": _task_status_from_text(combined),
-                "summary": task_summary,
-                "source_date": row["created_at"][:10] if row["created_at"] else None,
-            })
-            if len(tasks) >= limit:
-                break
+            text = (row["text"] or "").strip()
+            for sentence in re.split(r"(?<=[.!?])\s+|[\r\n]+", text):
+                completion = _TASK_COMPLETION.search(sentence)
+                match = completion or _TASK_COMMITMENT.search(sentence)
+                if not match:
+                    continue
+                title = _task_title(match.group(1))
+                if not title:
+                    continue
+                identity = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                due = _task_due_from_entry(sentence, row["created_at"])
+                context_title = (row["title"] or "").strip()
+                summary = f"From your diary{f' entry “{context_title}”' if context_title else ''}."
+                tasks.append({
+                    "id": f"{row['id']}-{len(tasks)}",
+                    "title": title,
+                    "due": due,
+                    "status": "done" if completion else "open",
+                    "summary": summary,
+                    "source_date": row["created_at"][:10] if row["created_at"] else None,
+                })
+                if len(tasks) >= limit:
+                    return tasks
         return tasks
 
 

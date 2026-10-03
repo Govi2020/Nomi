@@ -23,6 +23,15 @@ function NotebookPreferenceSelect({ id, label, value, options, onChange }: { id:
   </details>
 }
 
+function entryDisplayTitle(entry: DiaryEntry) {
+  if (entry.title.trim()) return entry.title
+  const firstLine = entry.content.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/, 1)[0] ?? ''
+  const words = firstLine.split(' ').filter(Boolean)
+  const title = words.slice(0, 9).join(' ').replace(/[,:;.!?]+$/, '')
+  if (!title) return 'A moment from your diary'
+  return `${title[0].toUpperCase()}${title.slice(1)}${words.length > 9 ? '…' : ''}`
+}
+
 export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaultMood, defaultEnergy, spellCheck, editorTextSize, onDelete }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string; defaultMood: string; defaultEnergy: string; spellCheck: boolean; editorTextSize: number; onDelete: (entry: DiaryEntry) => Promise<void> }) {
   const [search, setSearch] = useState('')
   const [attachment, setAttachment] = useState('')
@@ -466,7 +475,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
 
   const handleDeleteEntry = async (event: MouseEvent<HTMLButtonElement>, entry: DiaryEntry) => {
     event.stopPropagation()
-    if (!window.confirm(`Delete "${entry.title || 'Untitled entry'}"?`)) return
+    if (!window.confirm(`Delete "${entryDisplayTitle(entry)}"?`)) return
     setDeletingId(entry.id)
     try {
       await onDelete(entry)
@@ -518,10 +527,10 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     <label className="diary-search"><Search size={15} /><input aria-label="Search entries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search entries" /><span>{filteredDiary.length} entries</span></label>
     {loadError && <p className="diary-load-error" role="alert">Could not load diary entries: {loadError}</p>}
     {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <div className="diary-library-row" key={entry.id} onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry); setAttachment('') }}>
-      <button type="button" className="diary-library-entry" aria-label={`Open ${entry.title || 'Untitled entry'}`}>
-        <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entry.title || 'Untitled entry'}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
+      <button type="button" className="diary-library-entry" aria-label={`Open ${entryDisplayTitle(entry)}`}>
+        <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entryDisplayTitle(entry)}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
       </button>
-      <button type="button" className="diary-library-delete" aria-label={`Delete ${entry.title || 'Untitled entry'}`} disabled={deletingId === entry.id} onClick={event => void handleDeleteEntry(event, entry)}>
+      <button type="button" className="diary-library-delete" aria-label={`Delete ${entryDisplayTitle(entry)}`} disabled={deletingId === entry.id} onClick={event => void handleDeleteEntry(event, entry)}>
         {deletingId === entry.id ? 'Deleting…' : 'Delete'}
       </button>
     </div>)}</div> : loadError ? null : <div className="diary-library-empty"><div className="note-mark">“</div><h3>{search ? 'No entries found.' : 'Your diary is waiting.'}</h3><p>{search ? 'Try a different search.' : 'Start with one small moment from today.'}</p></div>}
