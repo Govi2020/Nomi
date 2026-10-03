@@ -28,6 +28,7 @@ class EntryCreate(BaseModel):
     source: str = "text"
     audio_id: str | None = None
     mood: str | None = Field(default=None, max_length=24)
+    mood_score: float | None = Field(default=None, ge=0, le=10)
     energy: str | None = Field(default=None, max_length=24)
 
 
@@ -35,6 +36,7 @@ class EntryUpdate(BaseModel):
     text: str | None = Field(default=None, min_length=0, max_length=200000)
     title: str | None = None
     mood: str | None = Field(default=None, max_length=24)
+    mood_score: float | None = Field(default=None, ge=0, le=10)
     energy: str | None = Field(default=None, max_length=24)
 
 
@@ -171,7 +173,7 @@ async def create_entry(body: EntryCreate):
     if body.audio_id:
         audio_path = str(_audio_path(body.audio_id))
     entry_id = db.create_entry(
-        body.text, body.title, body.source, audio_path, body.mood, body.energy
+        body.text, body.title, body.source, audio_path, body.mood, body.energy, body.mood_score
     )
     organized = await organize.organize_entry(entry_id) if body.text.strip() else None
     follow_up = await insights.follow_up(entry_id) if body.text.strip() else ""
@@ -179,7 +181,10 @@ async def create_entry(body: EntryCreate):
 
 @app.put("/api/entries/{entry_id}")
 async def update_entry(entry_id: int, body: EntryUpdate):
-    if body.text is None and body.title is None and body.mood is None and body.energy is None:
+    if (
+        body.text is None and body.title is None and body.mood is None and body.energy is None
+        and "mood_score" not in body.model_fields_set
+    ):
         result = db.get_entry(entry_id)
         if result is None:
             raise HTTPException(status_code=404, detail="entry not found")
@@ -188,7 +193,12 @@ async def update_entry(entry_id: int, body: EntryUpdate):
     if previous is None:
         raise HTTPException(status_code=404, detail="entry not found")
     if not db.update_entry(
-        entry_id, text=body.text, title=body.title, mood=body.mood, energy=body.energy
+        entry_id,
+        text=body.text,
+        title=body.title,
+        mood=body.mood,
+        energy=body.energy,
+        mood_score=body.mood_score if "mood_score" in body.model_fields_set else db._UNSET,
     ):
         raise HTTPException(status_code=404, detail="entry not found")
     result = db.get_entry(entry_id)

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS entries (
   audio_path  TEXT,
   source      TEXT NOT NULL DEFAULT 'text',
   mood        TEXT,
+  mood_score  REAL CHECK (mood_score IS NULL OR (mood_score >= 0 AND mood_score <= 10)),
   energy      TEXT,
   organized   INTEGER NOT NULL DEFAULT 0
 );
@@ -199,6 +200,11 @@ def init_db():
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(entries)")}
         if "energy" not in columns:
             conn.execute("ALTER TABLE entries ADD COLUMN energy TEXT")
+        if "mood_score" not in columns:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN mood_score REAL "
+                "CHECK (mood_score IS NULL OR (mood_score >= 0 AND mood_score <= 10))"
+            )
         conn.commit()
     with closing(connect()) as conn:
         if _should_seed_demo_entries() and conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0] == 0:
@@ -384,17 +390,20 @@ def get_entry(entry_id):
     return _entry_with_meta(entry_id)
 
 
-def create_entry(text, title=None, source="text", audio_path=None, mood=None, energy=None):
+_UNSET = object()
+
+
+def create_entry(text, title=None, source="text", audio_path=None, mood=None, energy=None, mood_score=None):
     with closing(connect()) as conn:
         cur = conn.execute(
-            "INSERT INTO entries(text,title,source,audio_path,mood,energy) VALUES(?,?,?,?,?,?)",
-            (text, title, source, audio_path, mood, energy),
+            "INSERT INTO entries(text,title,source,audio_path,mood,energy,mood_score) VALUES(?,?,?,?,?,?,?)",
+            (text, title, source, audio_path, mood, energy, mood_score),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def update_entry(entry_id, text=None, title=None, ai_fields_only=False, mood=None, energy=None):
+def update_entry(entry_id, text=None, title=None, ai_fields_only=False, mood=None, energy=None, mood_score=_UNSET):
     fields, values = [], []
     if not ai_fields_only:
         if text is not None:
@@ -409,6 +418,9 @@ def update_entry(entry_id, text=None, title=None, ai_fields_only=False, mood=Non
     if energy is not None:
         fields.append("energy=?")
         values.append(energy)
+    if mood_score is not _UNSET:
+        fields.append("mood_score=?")
+        values.append(mood_score)
     if not fields:
         return get_entry(entry_id) is not None
     fields.append("updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')")
