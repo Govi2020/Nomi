@@ -1,0 +1,310 @@
+.talk-page {
+    max-width: 760px;
+    min-height: calc(100vh - 145px);
+    padding-bottom: 90px;
+    display: flex;
+    flex-direction: column
+}
+
+.talk-heading {
+    padding-top: 32px;
+    text-align: center
+}
+
+.talk-heading h1 {
+    margin: 13px 0 7px;
+    color: var(--ink);
+    font: 400 42px/1.1 var(--serif)
+}
+
+.talk-heading p {
+    margin: 0;
+    color: var(--muted);
+    font: 15px var(--serif)
+}
+
+.talk-presence {
+    width: 150px;
+    aspect-ratio: 1;
+    margin: 32px auto 13px;
+    border: 1px solid #505a49;
+    border-radius: 50%;
+    color: #bcc7ae;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 12px;
+    background: radial-gradient(circle, #333d2f 0, #20251f 66%, #1b201a 100%);
+    box-shadow: 0 0 0 9px #89977d0a;
+    transition: border-color .25s, box-shadow .25s, transform .25s
+}
+
+.talk-presence span {
+    color: #c1c9b5;
+    font-size: 10px;
+    letter-spacing: .3px
+}
+
+.talk-presence.is-active {
+    border-color: #a0b18f;
+    box-shadow: 0 0 0 9px #89977d12, 0 0 36px #89977d27;
+    animation: talk-breathe 2.8s ease-in-out infinite
+}
+
+.talk-presence.is-working {
+    border-color: #897c5e;
+    color: #d4bd90
+}
+
+.talk-status {
+    min-height: 24px;
+    margin: 0 auto 15px;
+    max-width: min(520px, 100%);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font: 12px/1.5 var(--serif);
+    text-align: center
+}
+
+.talk-status p {
+    margin: 0
+}
+
+.talk-status-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: #78816f
+}
+
+.talk-status.phase-recording .talk-status-dot,
+.talk-status.phase-listening .talk-status-dot {
+    background: #93a983;
+    box-shadow: 0 0 0 4px #93a98320
+}
+
+.talk-status.phase-transcribing .talk-status-dot,
+.talk-status.phase-thinking .talk-status-dot {
+    background: #c3a471;
+    animation: talk-pulse 1.1s ease-in-out infinite
+}
+
+.talk-status.phase-speaking .talk-status-dot {
+    background: #8d9e7c;
+    animation: talk-pulse .8s ease-in-out infinite
+}
+
+.talk-status.phase-error .talk-status-dot {
+    background: #bd8b76
+}
+
+.talk-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin: 0 auto 21px
+}
+
+.talk-mic-control {
+    display: grid;
+    justify-items: center;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 10px
+}
+
+.talk-secondary-controls {
+    display: flex;
+    align-items: center;
+    gap: 9px
+}
+
+.talk-mic {
+    width: 58px;
+    height: 58px;
+    border: 1px solid #89977d;
+    border-radius: 50%;
+    background: #849179;
+    color: #171b16;
+    display: grid;
+    place-items: center;
+    transition: transform .16s, background .16s, box-shadow .16s
+}
+
+.talk-mic:hover {
+    transform: scale(1.04);
+    background: #a0ad94
+}
+
+.talk-mic.is-listening {
+    background: #bd8b76;
+    border-color: #cfaa97;
+    color: #211917;
+    box-shadow: 0 0 0 5px #bd8b7624
+}
+
+.talk-icon-button {
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--panel);
+    color: var(--muted);
+    display: grid;
+    place-items: center
+}
+
+.talk-icon-button:hover {
+    color: var(--ink);
+    border-color: var(--sage2)
+}
+
+.talk-privacy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin: 0 auto 28px;
+    color: var(--quiet);
+    font-size: 9px;
+    text-align: center
+}
+
+.talk-privacy-dot {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 50%;
+    background: #94a584
+}
+
+.talk-transcript {
+    width: 100%;
+    max-height: min(34vh, 300px);
+    overflow: auto;
+    margin-top: auto;
+    border-top: 1px solid var(--line-soft);
+    scrollbar-width: thin;
+    scrollbar-color: #596451 transparent
+}
+
+.talk-turn {
+    padding: 15px 2px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    animation: talk-appear .2s ease both
+}
+
+.talk-turn-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--quiet);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1px
+}
+
+.talk-turn-label small {
+    color: #a79a78;
+    font-size: 7px
+}
+
+.talk-turn p {
+    margin: 7px 0 0;
+    color: var(--ink);
+    font: 16px/1.55 var(--serif);
+    white-space: pre-wrap
+}
+
+.live-draft-turn {
+    border-left: 2px solid #91a47f;
+    padding-left: 11px
+}
+
+.live-draft-turn p::after {
+    content: "";
+    display: inline-block;
+    width: 1px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -.12em;
+    background: #a7b895;
+    animation: talk-caret 1s steps(2, start) infinite
+}
+
+.assistant-turn p {
+    color: #d5d8cb
+}
+
+.user-turn p {
+    color: #bac0b1
+}
+
+.talk-empty {
+    padding: 21px 2px 0;
+    color: var(--quiet)
+}
+
+.talk-empty p {
+    margin: 7px 0 0;
+    color: var(--muted);
+    font: 14px var(--serif)
+}
+
+:root[data-theme="light"] .talk-presence {
+    border-color: #cbd4c3;
+    background: radial-gradient(circle, #edf1e8 0, #f8f9f5 72%);
+    color: #66765b
+}
+
+:root[data-theme="light"] .talk-presence span,
+:root[data-theme="light"] .talk-turn p,
+:root[data-theme="light"] .assistant-turn p,
+:root[data-theme="light"] .user-turn p {
+    color: #354032
+}
+
+:root[data-theme="light"] .talk-mic {
+    background: #718364;
+    color: #fff
+}
+
+:root[data-theme="light"] .talk-mic.is-listening {
+    background: #a96d58
+}
+
+:root[data-theme="light"] .talk-mic-control,
+:root[data-theme="light"] .talk-status {
+    color: #687064
+}
+
+@keyframes talk-breathe {
+    0%, 100% { transform: scale(1) }
+    50% { transform: scale(1.025) }
+}
+
+@keyframes talk-appear {
+    from { opacity: 0; transform: translateY(4px) }
+    to { opacity: 1; transform: translateY(0) }
+}
+
+@keyframes talk-pulse {
+    50% { opacity: .45; transform: scale(.82) }
+}
+
+@keyframes talk-caret {
+    50% { opacity: 0 }
+}
+
+@media (max-width: 760px) {
+    .talk-page { min-height: calc(100vh - 125px); padding-bottom: 40px }
+    .talk-heading { padding-top: 26px }
+    .talk-heading h1 { font-size: 36px }
+    .talk-presence { width: 132px; margin-top: 27px }
+    .talk-transcript { max-height: 38vh }
+}
