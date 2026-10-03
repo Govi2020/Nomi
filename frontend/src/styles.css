@@ -8850,3 +8850,105 @@ a:focus-visible,
         padding: 6px 8px;
     }
 }
+
+.diary-media-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(210px, 100%), 1fr));
+    gap: 12px;
+    margin: 18px 2px 88px;
+}
+
+.diary-media-item {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    background: var(--panel);
+}
+
+.diary-media-item img,
+.diary-media-item video {
+    display: block;
+    width: 100%;
+    max-height: 340px;
+    aspect-ratio: 4 / 3;
+    object-fit: contain;
+    background: color-mix(in srgb, var(--ink) 6%, var(--panel));
+}
+
+.diary-media-item figcaption {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 10px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.diary-media-item figcaption span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.diary-media-item figcaption button {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--line-soft);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+}
+
+.diary-media-status {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.diary-library-media {
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 54px;
+    height: 44px;
+    overflow: visible;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    background: var(--panel2);
+    color: var(--muted);
+}
+
+.diary-library-media img {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+}
+
+.diary-library-video {
+    font: 9px var(--mono);
+    letter-spacing: .05em;
+}
+
+.diary-library-media > small {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    padding: 2px 5px;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 9px;
+}
+
+.notebook-attach.is-uploading {
+    opacity: .65;
+    cursor: progress;
+}

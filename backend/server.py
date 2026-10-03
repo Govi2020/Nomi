@@ -5,6 +5,7 @@ import uuid
 from datetime import date
 from typing import Literal
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,7 @@ class EntryCreate(BaseModel):
     mood: str | None = Field(default=None, max_length=24)
     mood_score: float | None = Field(default=None, ge=0, le=10)
     energy: str | None = Field(default=None, max_length=24)
+    media_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class EntryUpdate(BaseModel):
@@ -38,6 +40,7 @@ class EntryUpdate(BaseModel):
     mood: str | None = Field(default=None, max_length=24)
     mood_score: float | None = Field(default=None, ge=0, le=10)
     energy: str | None = Field(default=None, max_length=24)
+    media_ids: list[str] | None = Field(default=None, max_length=20)
 
 
 class WritingFeedbackIn(BaseModel):
@@ -154,6 +157,20 @@ def delete_all_entries():
                 status_code=500,
                 detail=f"Diary entries were deleted, but an audio file could not be removed: {exc}",
             ) from exc
+    media_dir = config.MEDIA_DIR.resolve()
+    for media_path in result["media_paths"]:
+        path = Path(media_path).resolve()
+        if path.parent != media_dir:
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Diary entries were deleted, but an attachment could not be removed: {exc}",
+            ) from exc
     return {"deleted_count": result["deleted_count"]}
 
 
@@ -167,14 +184,19 @@ def entry(entry_id: int):
 
 @app.post("/api/entries")
 async def create_entry(body: EntryCreate):
-    if not body.text.strip() and not (body.title or "").strip():
-        raise HTTPException(status_code=422, detail="A title or journal text is required.")
+    if not body.text.strip() and not (body.title or "").strip() and not body.media_ids:
+        raise HTTPException(status_code=422, detail="A title, journal text, or attachment is required.")
     audio_path = None
     if body.audio_id:
         audio_path = str(_audio_path(body.audio_id))
     entry_id = db.create_entry(
         body.text, body.title, body.source, audio_path, body.mood, body.energy, body.mood_score
     )
+    try:
+        db.set_entry_media(entry_id, body.media_ids)
+    except ValueError as exc:
+        db.delete_entry(entry_id)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     organized = await organize.organize_entry(entry_id) if body.text.strip() else None
     follow_up = await insights.follow_up(entry_id) if body.text.strip() else ""
     return {"entry": organized or db.get_entry(entry_id), "follow_up": follow_up}
@@ -184,6 +206,7 @@ async def update_entry(entry_id: int, body: EntryUpdate):
     if (
         body.text is None and body.title is None and body.mood is None and body.energy is None
         and "mood_score" not in body.model_fields_set
+        and "media_ids" not in body.model_fields_set
     ):
         result = db.get_entry(entry_id)
         if result is None:
@@ -201,6 +224,13 @@ async def update_entry(entry_id: int, body: EntryUpdate):
         mood_score=body.mood_score if "mood_score" in body.model_fields_set else db._UNSET,
     ):
         raise HTTPException(status_code=404, detail="entry not found")
+    if "media_ids" in body.model_fields_set:
+        try:
+            removed_paths = db.set_entry_media(entry_id, body.media_ids or [])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        for media_path in removed_paths or []:
+            Path(media_path).unlink(missing_ok=True)
     result = db.get_entry(entry_id)
     if not previous["text"].strip() and result["text"].strip():
         return await organize.organize_entry(entry_id) or db.get_entry(entry_id)
@@ -209,8 +239,11 @@ async def update_entry(entry_id: int, body: EntryUpdate):
 
 @app.delete("/api/entries/{entry_id}")
 def delete_entry(entry_id: int):
+    media_paths = db.entry_media_paths(entry_id)
     if not db.delete_entry(entry_id):
         raise HTTPException(status_code=404, detail="entry not found")
+    for media_path in media_paths:
+        Path(media_path).unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -299,6 +332,67 @@ async def upload_audio(file: UploadFile = File(...)):
     finally:
         await file.close()
     return {"audio_id": audio_id}
+
+
+@app.post("/api/media/upload")
+async def upload_media(file: UploadFile = File(...)):
+    config.ensure_dirs()
+    allowed = {
+        "image/jpeg": ("image", ".jpg"),
+        "image/png": ("image", ".png"),
+        "image/webp": ("image", ".webp"),
+        "image/gif": ("image", ".gif"),
+        "video/mp4": ("video", ".mp4"),
+        "video/webm": ("video", ".webm"),
+        "video/quicktime": ("video", ".mov"),
+    }
+    content_type = (file.content_type or "").lower().split(";", 1)[0].strip()
+    details = allowed.get(content_type)
+    if not details:
+        await file.close()
+        raise HTTPException(status_code=415, detail="Choose a JPEG, PNG, WebP, GIF, MP4, WebM, or MOV file.")
+    media_type, extension = details
+    media_id = str(uuid.uuid4())
+    target = config.MEDIA_DIR / f"{media_id}{extension}"
+    limit = 25 * 1024 * 1024 if media_type == "image" else 150 * 1024 * 1024
+    size = 0
+    try:
+        with target.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status_code=413, detail=f"{media_type.title()} file exceeds {limit // (1024 * 1024)} MB.")
+                output.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="The selected file is empty.")
+        db.register_media(media_id, target, Path(file.filename or f"attachment{extension}").name, media_type, content_type)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+    return {
+        "id": media_id,
+        "filename": Path(file.filename or f"attachment{extension}").name,
+        "media_type": media_type,
+        "content_type": content_type,
+        "url": f"/api/media/{media_id}",
+    }
+
+
+@app.get("/api/media/{media_id}")
+def get_media_file(media_id: str):
+    media = db.get_media(media_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail="media not found")
+    path = Path(media["path"]).resolve()
+    if path.parent != config.MEDIA_DIR.resolve() or not path.is_file():
+        raise HTTPException(status_code=404, detail="media not found")
+    return FileResponse(
+        path,
+        media_type=media["content_type"],
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(media['filename'])}"},
+    )
 
 
 def _journal_rows(result):

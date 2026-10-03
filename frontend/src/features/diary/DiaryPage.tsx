@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { ArtificialIntelligence, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Code as Code2, Compass, Feather, List, Mic, MicOff, Paperclip, Add as Plus, RotateCcw, Search, Sparkles, Underline, Cancel as X } from '../../components/icons'
 import type { DiaryEntry } from '../../types'
 import { aiService } from '../../services/aiService'
+import { memoryService } from '../../services/memoryService'
 import { preloadWhisper, transcribePcm } from '../../services/localTranscriptionService'
 import { type AudioFrame, mergeOverlappingTranscript, sanitizeTranscribedText } from './transcript'
 import { PageHeading } from '../../components/PageHeading'
@@ -34,7 +35,8 @@ function entryDisplayTitle(entry: DiaryEntry) {
 
 export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaultMood, defaultEnergy, spellCheck, editorTextSize, onDelete }: { diary: DiaryEntry[]; selected: DiaryEntry | null; onSelect: (entry: DiaryEntry | null) => void; onSave: (entry: DiaryEntry) => Promise<DiaryEntry>; loadError: string; defaultMood: string; defaultEnergy: string; spellCheck: boolean; editorTextSize: number; onDelete: (entry: DiaryEntry) => Promise<void> }) {
   const [search, setSearch] = useState('')
-  const [attachment, setAttachment] = useState('')
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [mediaUploadError, setMediaUploadError] = useState('')
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [saveError, setSaveError] = useState('')
   const [feedback, setFeedback] = useState('')
@@ -325,8 +327,8 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     setFeedbackAction(null)
     setFeedbackKind(null)
     const date = new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())
-    onSelect({ id: 'new', date, title: '', content: '', mood: defaultMood, energy: defaultEnergy, topics: [], people: [], memoryIds: [] })
-    setAttachment('')
+    setMediaUploadError('')
+    onSelect({ id: 'new', date, title: '', content: '', mood: defaultMood, energy: defaultEnergy, topics: [], people: [], memoryIds: [], media: [] })
   }
   const updateEntry = (changes: Partial<DiaryEntry>) => {
     const current = selectedEntryRef.current
@@ -338,7 +340,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     setFeedbackKind(null)
     setInlinePrompt('')
     const updated = { ...current, ...changes }
-    if (updated.id === 'new' && (updated.title.trim() || updated.content.trim())) updated.id = `d${Date.now()}`
+    if (updated.id === 'new' && (updated.title.trim() || updated.content.trim() || updated.media?.length)) updated.id = `d${Date.now()}`
     selectedEntryRef.current = updated
     onSelect(updated)
     if (updated.id !== 'new') persistEntry(updated)
@@ -473,6 +475,34 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
+  const handleMediaUpload = async (files: FileList | null) => {
+    if (!files?.length) return
+    const current = selectedEntryRef.current
+    if (!current) return
+    const chosen = Array.from(files)
+    if ((current.media?.length ?? 0) + chosen.length > 20) {
+      setMediaUploadError('An entry can have up to 20 photos or videos.')
+      return
+    }
+    setUploadingMedia(true)
+    setMediaUploadError('')
+    try {
+      const uploaded = await Promise.all(chosen.map(file => memoryService.uploadDiaryMedia(file)))
+      const latest = selectedEntryRef.current
+      if (!latest || latest.id !== current.id) return
+      updateEntry({ media: [...(latest.media ?? []), ...uploaded] })
+    } catch (error) {
+      setMediaUploadError(error instanceof Error ? error.message : 'Could not upload this photo or video.')
+    } finally {
+      setUploadingMedia(false)
+    }
+  }
+
+  const removeMedia = (mediaId: string) => {
+    if (!selected) return
+    updateEntry({ media: (selected.media ?? []).filter(media => media.id !== mediaId) })
+  }
+
   const handleDeleteEntry = async (event: MouseEvent<HTMLButtonElement>, entry: DiaryEntry) => {
     event.stopPropagation()
     if (!window.confirm(`Delete "${entryDisplayTitle(entry)}"?`)) return
@@ -480,7 +510,6 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     try {
       await onDelete(entry)
       onSelect(null)
-      setAttachment('')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not delete this entry.')
     } finally {
@@ -509,7 +538,12 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     {inlineDigDeeper && (inlinePrompt || feedbackError || feedbackAction === 'dig_deeper') && <div className="diary-inline-prompt" role="status" aria-live="polite"><div className="diary-inline-prompt-head"><Brain size={14} /> <span>{feedbackAction === 'dig_deeper' ? 'Thinking…' : 'Dig deeper'}</span></div>{inlinePrompt && <p>{inlinePrompt}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}<button type="button" onClick={() => { setInlineDigDeeper(false); setInlinePrompt(''); setFeedbackError(''); setFeedbackKind(null); feedbackRequestRef.current += 1 }}>Close</button></div>}
     {saveError && <p className="diary-save-error" role="alert">Could not save this entry: {saveError}</p>}
     {dictationMessage && <span className="notebook-sr-status" role="status">{dictationMessage}</span>}
-    {attachment && <div className="notebook-attachment"><Paperclip size={13} />{attachment}<button onClick={() => setAttachment('')} aria-label="Remove attachment"><X size={13} /></button></div>}
+    {(selected.media?.length ?? 0) > 0 && <div className="diary-media-grid" aria-label="Entry attachments">{selected.media?.map(media => <figure className="diary-media-item" key={media.id}>
+      {media.media_type === 'image' ? <img src={media.url} alt={media.filename} /> : <video src={media.url} controls preload="metadata" aria-label={media.filename} />}
+      <figcaption><span>{media.filename}</span><button type="button" onClick={() => removeMedia(media.id)} aria-label={`Remove ${media.filename}`}><X size={14} /></button></figcaption>
+    </figure>)}</div>}
+    {uploadingMedia && <p className="diary-media-status" role="status">Uploading photo or video…</p>}
+    {mediaUploadError && <p className="diary-save-error" role="alert">{mediaUploadError}</p>}
 
   </section>
       {feedbackKind !== 'dig_deeper' && (feedback || feedbackError || feedbackAction) && <aside className="diary-ai-feedback" aria-live="polite"><div className="diary-ai-feedback-heading"><ArtificialIntelligence size={15} /><span>{feedbackAction ? 'Thinking about your entry…' : feedbackError ? 'A moment for reflection' : 'A different perspective'}</span></div>{feedback && <p>{feedback}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}</aside>}
@@ -517,7 +551,7 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     <div className="notebook-toolbar" role="toolbar" aria-label="Diary writing tools">
       <div className="notebook-ai-actions" role="group" aria-label="AI reflection tools"><button type="button" className={inlineDigDeeper ? 'is-active' : ''} onClick={() => { void toggleInlineDigDeeper() }} title="Toggle inline dig deeper" aria-pressed={inlineDigDeeper}><Brain size={16} /><span>{inlineDigDeeper ? 'Inline on' : 'Dig deeper'}</span></button><button type="button" onClick={() => requestFeedback('get_perspective')} disabled={feedbackAction !== null} title="Get perspective"><Compass size={16} /><span>{feedbackAction === 'get_perspective' ? 'Thinking…' : 'Get perspective'}</span></button></div>
       <span className="notebook-tool-divider" aria-hidden="true" /><div className="notebook-tool-group" role="group" aria-label="Notebook editing tools"><button type="button" title="Underline" aria-label="Underline selection" onClick={() => addFormatting('<u>', '</u>')}><Underline size={17} /></button><button type="button" title="Bulleted list" aria-label="Insert bulleted list" onClick={insertList}><List size={18} /></button><button type="button" title="Code" aria-label="Wrap in code marks" onClick={() => addFormatting('`')}><Code2 size={17} /></button><button type="button" title="Undo latest voice transcription" aria-label="Undo latest voice transcription" disabled={!canUndoDictation || lastDictationInsertionRef.current?.entryId !== selected.id} onClick={undoLastDictation}><RotateCcw size={17} /></button></div>
-      <span className="notebook-tool-spacer" /><label className="notebook-attach" title="Attach a file" aria-label="Attach a file"><Paperclip size={16} /><span>Attach</span><input type="file" onChange={event => setAttachment(event.target.files?.[0]?.name ?? '')} /></label><span className="notebook-tool-divider notebook-attach-divider" aria-hidden="true" /><button type="button" className={`notebook-mic ${dictating ? 'is-listening' : ''}`} title={dictating ? 'Stop live dictation' : 'Start live dictation'} aria-label={dictating ? 'Stop live dictation — microphone on' : 'Start live dictation — microphone off'} aria-pressed={dictating} onClick={() => dictating ? stopDictation() : startDictation()}>{dictating ? <Mic size={17} /> : <MicOff size={17} />}<span className="notebook-mic-label" aria-hidden="true">{dictating ? 'Listening' : 'Mic off'}</span></button>
+      <span className="notebook-tool-spacer" /><label className={`notebook-attach${uploadingMedia ? ' is-uploading' : ''}`} title="Attach photos or videos" aria-label="Attach photos or videos"><Paperclip size={16} /><span>{uploadingMedia ? 'Uploading…' : 'Photo / video'}</span><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" multiple disabled={uploadingMedia} onChange={event => { void handleMediaUpload(event.target.files); event.currentTarget.value = '' }} /></label><span className="notebook-tool-divider notebook-attach-divider" aria-hidden="true" /><button type="button" className={`notebook-mic ${dictating ? 'is-listening' : ''}`} title={dictating ? 'Stop live dictation' : 'Start live dictation'} aria-label={dictating ? 'Stop live dictation — microphone on' : 'Start live dictation — microphone off'} aria-pressed={dictating} onClick={() => dictating ? stopDictation() : startDictation()}>{dictating ? <Mic size={17} /> : <MicOff size={17} />}<span className="notebook-mic-label" aria-hidden="true">{dictating ? 'Listening' : 'Mic off'}</span></button>
     </div>
   </>
 
@@ -526,9 +560,11 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
     <button className="diary-new-entry" onClick={createEntry}><Plus size={19} /><span>New entry</span><ChevronRight size={16} /></button>
     <label className="diary-search"><Search size={15} /><input aria-label="Search entries" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search entries" /><span>{filteredDiary.length} entries</span></label>
     {loadError && <p className="diary-load-error" role="alert">Could not load diary entries: {loadError}</p>}
-    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <div className="diary-library-row" key={entry.id} onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry); setAttachment('') }}>
+    {filteredDiary.length ? <div className="diary-library-list">{filteredDiary.map((entry, index) => <div className="diary-library-row" key={entry.id} onClick={() => { saveRequestRef.current += 1; setSaveState('saved'); setSaveError(''); onSelect(entry) }}>
       <button type="button" className="diary-library-entry" aria-label={`Open ${entryDisplayTitle(entry)}`}>
-        <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entryDisplayTitle(entry)}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span><ChevronRight size={16} className="diary-library-arrow" />
+        <span className="diary-library-icon"><Feather size={16} /></span><span className="diary-library-copy"><span className="diary-library-meta">{entry.date}{entry.mood ? ` · ${entry.mood}` : ''}</span><b>{entryDisplayTitle(entry)}</b><small>{entry.content.slice(0, 150)}{entry.content.length > 150 ? '…' : ''}</small></span>
+        {(entry.media?.length ?? 0) > 0 && <span className="diary-library-media" aria-label={`${entry.media?.length} attachments`}>{entry.media?.[0].media_type === 'image' ? <img src={entry.media?.[0].url} alt="" /> : <span className="diary-library-video">VIDEO</span>}{(entry.media?.length ?? 0) > 1 && <small>+{(entry.media?.length ?? 0) - 1}</small>}</span>}
+        <ChevronRight size={16} className="diary-library-arrow" />
       </button>
       <button type="button" className="diary-library-delete" aria-label={`Delete ${entryDisplayTitle(entry)}`} disabled={deletingId === entry.id} onClick={event => void handleDeleteEntry(event, entry)}>
         {deletingId === entry.id ? 'Deleting…' : 'Delete'}

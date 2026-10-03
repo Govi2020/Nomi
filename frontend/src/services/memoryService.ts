@@ -1,5 +1,5 @@
-import type { DiaryEntry, Memory } from '../types'
-import { apiClient } from './apiClient'
+import type { DiaryEntry, DiaryMedia, Memory } from '../types'
+import { apiClient, resolveApiUrl } from './apiClient'
 import { transcribePcm } from './localTranscriptionService'
 
 const memories: Memory[] = [
@@ -19,6 +19,7 @@ interface ApiDiaryEntry {
   mood: string | null
   mood_score: number | null
   energy: string | null
+  media: DiaryMedia[]
   tags: string[]
   entities: { name: string }[]
 }
@@ -40,6 +41,7 @@ function fromApiDiaryEntry(entry: ApiDiaryEntry): DiaryEntry {
     topics: entry.tags,
     people: entry.entities.map(entity => entity.name),
     memoryIds: [],
+    media: (entry.media ?? []).map(media => ({ ...media, url: resolveApiUrl(media.url) })),
   }
 }
 
@@ -55,6 +57,7 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
         mood: entry.mood,
         mood_score: entry.moodScore ?? null,
         energy: entry.energy,
+        media_ids: (entry.media ?? []).map(media => media.id),
       })
     } else {
       const response = await apiClient.post<{ entry: ApiDiaryEntry }>('/api/entries', {
@@ -64,6 +67,7 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
         mood: entry.mood,
         mood_score: entry.moodScore ?? null,
         energy: entry.energy,
+        media_ids: (entry.media ?? []).map(media => media.id),
       })
       saved = response.entry
       draftEntryIds.set(draftId, String(saved.id))
@@ -109,6 +113,9 @@ async function loadAllDiaryEntries() {
 }
 
 export const memoryService = {
+  uploadDiaryMedia(file: File) {
+    return apiClient.upload<DiaryMedia>('/api/media/upload', file).then(media => ({ ...media, url: resolveApiUrl(media.url) }))
+  },
   async getMemories() { await delay(); return memories },
   async getMemory(id: string) { await delay(); return memories.find(item => item.id === id) ?? memories[0] },
   getDiary: loadAllDiaryEntries,

@@ -1,4 +1,5 @@
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
+export const resolveApiUrl = (path: string) => `${baseUrl}${path}`
 
 // Central boundary for the future FastAPI service. Mock services can be swapped for these calls without changing pages.
 export const apiClient = {
@@ -18,6 +19,22 @@ export const apiClient = {
   },
   async post<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`
+      try {
+        const error = await response.json() as { detail?: string }
+        if (error.detail) message = error.detail
+      } catch {
+        // Preserve the HTTP status when the backend does not return JSON.
+      }
+      throw new Error(message)
+    }
+    return response.json() as Promise<T>
+  },
+  async upload<T>(path: string, file: File): Promise<T> {
+    const body = new FormData()
+    body.append('file', file)
+    const response = await fetch(`${baseUrl}${path}`, { method: 'POST', body })
     if (!response.ok) {
       let message = `Request failed (${response.status})`
       try {

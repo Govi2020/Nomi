@@ -5,6 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("JOURNAL_DATA_DIR", BASE_DIR / "data"))
 DB_PATH = DATA_DIR / "journal.db"
 AUDIO_DIR = DATA_DIR / "audio"
+MEDIA_DIR = DATA_DIR / "media"
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "qwen2.5:7b")
@@ -20,3 +21,4 @@ GRAPH_MAX_ENTRIES = int(os.environ.get("GRAPH_MAX_ENTRIES", "300"))
 def ensure_dirs():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)

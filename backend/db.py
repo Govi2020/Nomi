@@ -24,6 +24,17 @@ CREATE TABLE IF NOT EXISTS entries (
   energy      TEXT,
   organized   INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS entry_media (
+  id           TEXT PRIMARY KEY,
+  entry_id     INTEGER,
+  path         TEXT NOT NULL,
+  filename     TEXT NOT NULL,
+  media_type   TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_entry_media_entry ON entry_media(entry_id);
 CREATE TABLE IF NOT EXISTS tags (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL
@@ -241,10 +252,70 @@ def _attach_meta(conn, entries):
         entities.setdefault(row["entry_id"], []).append(
             {"name": row["name"], "type": row["type"]}
         )
+    media = {}
+    for row in conn.execute(
+        f"SELECT id, entry_id, filename, media_type, content_type FROM entry_media "
+        f"WHERE entry_id IN ({marks}) ORDER BY created_at, id",
+        ids,
+    ):
+        media.setdefault(row["entry_id"], []).append({
+            "id": row["id"],
+            "filename": row["filename"],
+            "media_type": row["media_type"],
+            "content_type": row["content_type"],
+            "url": f"/api/media/{row['id']}",
+        })
     for entry in entries:
         entry["tags"] = tags.get(entry["id"], [])
         entry["entities"] = entities.get(entry["id"], [])
+        entry["media"] = media.get(entry["id"], [])
     return entries
+
+
+def register_media(media_id, path, filename, media_type, content_type):
+    with closing(connect()) as conn:
+        conn.execute(
+            "INSERT INTO entry_media(id,path,filename,media_type,content_type) VALUES(?,?,?,?,?)",
+            (media_id, str(path), filename, media_type, content_type),
+        )
+        conn.commit()
+
+
+def get_media(media_id):
+    with closing(connect()) as conn:
+        row = conn.execute(
+            "SELECT id, entry_id, path, filename, media_type, content_type FROM entry_media WHERE id=?",
+            (media_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def entry_media_paths(entry_id):
+    with closing(connect()) as conn:
+        return [row["path"] for row in conn.execute("SELECT path FROM entry_media WHERE entry_id=?", (entry_id,))]
+
+
+def set_entry_media(entry_id, media_ids):
+    media_ids = list(dict.fromkeys(str(media_id) for media_id in media_ids))
+    with closing(connect()) as conn:
+        if conn.execute("SELECT 1 FROM entries WHERE id=?", (entry_id,)).fetchone() is None:
+            return None
+        marks = ",".join("?" for _ in media_ids)
+        requested = conn.execute(
+            f"SELECT id, entry_id FROM entry_media WHERE id IN ({marks})" if media_ids else "SELECT id, entry_id FROM entry_media WHERE 0",
+            media_ids,
+        ).fetchall()
+        if len(requested) != len(media_ids) or any(row["entry_id"] not in (None, entry_id) for row in requested):
+            raise ValueError("One or more uploaded media files are unavailable.")
+        previous = conn.execute("SELECT id, path FROM entry_media WHERE entry_id=?", (entry_id,)).fetchall()
+        removed = [dict(row) for row in previous if row["id"] not in media_ids]
+        if removed:
+            removed_marks = ",".join("?" for _ in removed)
+            conn.execute(f"DELETE FROM entry_media WHERE id IN ({removed_marks})", [row["id"] for row in removed])
+        if media_ids:
+            conn.execute(f"UPDATE entry_media SET entry_id=? WHERE id IN ({marks})", [entry_id, *media_ids])
+        conn.commit()
+        return [row["path"] for row in removed]
 
 
 def _entry_with_meta(entry_id):
@@ -555,6 +626,7 @@ def delete_all_entries():
             row["audio_path"]
             for row in conn.execute("SELECT audio_path FROM entries WHERE audio_path IS NOT NULL")
         ]
+        media_paths = [row["path"] for row in conn.execute("SELECT path FROM entry_media")]
         count = conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
         conn.execute("DELETE FROM entries")
         conn.execute("DELETE FROM tags WHERE NOT EXISTS (SELECT 1 FROM entry_tags WHERE tag_id=tags.id)")
@@ -563,7 +635,7 @@ def delete_all_entries():
             "(SELECT 1 FROM entry_entities WHERE entity_id=entities.id)"
         )
         conn.commit()
-        return {"deleted_count": count, "audio_paths": audio_paths}
+        return {"deleted_count": count, "audio_paths": audio_paths, "media_paths": media_paths}
 
 
 def get_entries_by_ids(ids):
