@@ -5966,6 +5966,14 @@ body,
 .mood-mini-header button { display: inline-flex; align-items: center; gap: 3px; padding: 5px 8px; border: 1px solid var(--line-soft); border-radius: 5px; background: var(--panel); color: var(--ink); font: inherit; font-size: 10px; font-weight: 500; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; }
 .mood-mini-header button:hover { border-color: var(--sage2); background: var(--panel2); }
 .mood-mini-header button:focus-visible { outline: 2px solid var(--sage2); outline-offset: 2px; }
+.mood-score-range { white-space: nowrap; }
+.mood-score-chart { display: block; width: 100%; max-width: 700px; overflow: visible; margin: 10px 0 0; }
+.mood-score-chart > g > line { stroke: var(--line-soft); stroke-width: 1; }
+.mood-score-chart text { fill: var(--muted); font-family: inherit; font-size: 10px; text-anchor: end; }
+.mood-score-chart .mood-score-day { text-anchor: middle; }
+.mood-score-chart .mood-score-segment { stroke: var(--sage2); stroke-width: 2.5; }
+.mood-score-chart .mood-score-point { fill: var(--sage2); stroke: var(--panel); stroke-width: 2; }
+.mood-score-chart .mood-score-value { fill: var(--ink); font-size: 10px; font-weight: 600; text-anchor: middle; }
 .mood-bars { position: relative; display: flex; height: 112px; align-items: stretch; justify-content: space-around; gap: 5px; padding: 7px 8px 0; border-bottom: 1px solid var(--line-soft); background: repeating-linear-gradient(to bottom, transparent 0, transparent 26px, var(--line-soft) 27px, transparent 28px); }
 .mood-bar-column { z-index: 1; display: grid; min-width: 0; flex: 1; grid-template-rows: 14px minmax(0, 1fr) 19px; justify-items: center; }
 .mood-bar-count { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
@@ -6633,7 +6641,8 @@ body,
     }
 }
 
-.settings-report .report-actions {
+.settings-report .report-actions,
+.insight-export-preview .report-actions {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -6663,6 +6672,10 @@ body,
     color: var(--ink);
     background: var(--panel2);
 }
+
+.insight-report-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.insight-report-sources button { padding: 4px 7px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--panel); color: var(--muted); font: inherit; font-size: 10px; text-align: left; cursor: pointer; }
+.insight-report-sources button:hover { border-color: var(--sage2); color: var(--ink); }
 
 .clinician-report-print {
     max-width: 780px;
@@ -6822,10 +6835,9 @@ body,
 
 @media print {
     body,
-    :root,
-    :root[data-theme="light"] {
-        background: #fff !important;
-        color: #222 !important;
+    :root {
+        background: var(--bg) !important;
+        color: var(--ink) !important;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
     }
@@ -6847,8 +6859,8 @@ body,
         margin: 0;
         padding: 0;
         border: 0;
-        background: #fff;
-        color: #222;
+        background: var(--panel);
+        color: var(--ink);
         font-family: "Ubuntu Mono", ui-monospace, monospace;
     }
 
@@ -6863,7 +6875,7 @@ body,
     .clinician-report-print .report-caution,
     .clinician-report-print .report-section,
     .clinician-report-print .report-observation {
-        background: #fff;
+        background: var(--panel2);
     }
 
     .clinician-report-print,
@@ -6872,7 +6884,7 @@ body,
     .clinician-report-print h3,
     .clinician-report-print dd,
     .clinician-report-print li {
-        color: #222 !important;
+        color: var(--ink) !important;
     }
 
     .clinician-report-print p,
@@ -6880,12 +6892,13 @@ body,
     .clinician-report-print li span,
     .clinician-report-print .report-footer,
     .clinician-report-print .report-small-note {
-        color: #444 !important;
+        color: var(--muted) !important;
     }
 }
 
 @media (max-width: 600px) {
-    .settings-report .report-actions {
+    .settings-report .report-actions,
+    .insight-export-preview .report-actions {
         align-items: flex-start;
         flex-wrap: wrap;
     }
@@ -8412,6 +8425,16 @@ body,
     align-items: center;
     gap: 18px;
 }
+
+.notebook-mood-score { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 0; padding: 13px 0; border: 0; border-bottom: 1px solid var(--line-soft); }
+.notebook-mood-score legend { float: left; margin-right: 5px; color: var(--ink); font-size: 11px; font-weight: 600; }
+.notebook-mood-score legend span { color: var(--muted); font-weight: 400; }
+.notebook-mood-score > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.notebook-mood-score > div button { width: 29px; height: 29px; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; }
+.notebook-mood-score > div button[aria-pressed="true"] { border-color: var(--sage2); background: var(--sage2); color: var(--bg); }
+.notebook-mood-score > div button:focus-visible, .notebook-mood-clear:focus-visible { outline: 2px solid var(--sage2); outline-offset: 2px; }
+.notebook-mood-score small { color: var(--muted); font-size: 10px; }
+.notebook-mood-clear { padding: 3px 6px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 10px; text-decoration: underline; cursor: pointer; }
 
 .notebook-preference-field {
     display: flex;

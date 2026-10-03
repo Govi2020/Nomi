@@ -13,6 +13,11 @@ export interface ClinicalReportObservation {
   sources: ClinicalReportSource[]
 }
 
+export interface ClinicalReportComment {
+  text: string
+  sources: ClinicalReportSource[]
+}
+
 export interface ClinicalReport {
   generated_at: string
   entry_count: number
@@ -22,10 +27,15 @@ export interface ClinicalReport {
   last_entry_date: string | null
   writing_days: number
   mood_counts: Record<string, number>
+  mood_score_days?: { date: string; average_score: number; entry_count: number }[]
   energy_counts: Record<string, number>
   top_tags: { tag: string; count: number }[]
   writing_days_by_weekday: Record<string, number>
   observations: ClinicalReportObservation[]
+  behavior_patterns?: ClinicalReportObservation[]
+  personality_details?: ClinicalReportObservation[]
+  behavioral_shifts?: ClinicalReportObservation[]
+  overall_comment?: ClinicalReportComment
 }
 
 export const clinicalReportService = {

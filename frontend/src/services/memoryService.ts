@@ -17,6 +17,7 @@ interface ApiDiaryEntry {
   title: string | null
   text: string
   mood: string | null
+  mood_score: number | null
   energy: string | null
   tags: string[]
   entities: { name: string }[]
@@ -34,6 +35,7 @@ function fromApiDiaryEntry(entry: ApiDiaryEntry): DiaryEntry {
     title: entry.title ?? '',
     content: entry.text,
     mood: entry.mood ?? 'Thoughtful',
+    moodScore: entry.mood_score,
     energy: entry.energy ?? 'Steady',
     topics: entry.tags,
     people: entry.entities.map(entity => entity.name),
@@ -51,6 +53,7 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
         text: entry.content,
         title: entry.title,
         mood: entry.mood,
+        mood_score: entry.moodScore ?? null,
         energy: entry.energy,
       })
     } else {
@@ -59,6 +62,7 @@ function saveDiaryEntryApi(entry: DiaryEntry, source = 'text') {
         title: entry.title,
         source,
         mood: entry.mood,
+        mood_score: entry.moodScore ?? null,
         energy: entry.energy,
       })
       saved = response.entry

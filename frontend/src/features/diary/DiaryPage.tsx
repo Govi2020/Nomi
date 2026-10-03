@@ -488,6 +488,14 @@ export function DiaryPage({ diary, selected, onSelect, onSave, loadError, defaul
       <div className="notebook-preference-field"><span>Feeling</span><NotebookPreferenceSelect id="notebook-mood" label="Feeling" value={selected.mood || defaultMood} options={moodOptions} onChange={mood => updateEntry({ mood })} /></div>
       <div className="notebook-preference-field"><span>Energy</span><NotebookPreferenceSelect id="notebook-energy" label="Energy" value={selected.energy || defaultEnergy} options={energyOptions} onChange={energy => updateEntry({ energy })} /></div>
     </div>
+    <fieldset className="notebook-mood-score">
+      <legend>How was your mood? <span>0–10 · optional</span></legend>
+      <div role="group" aria-label="Mood score from 0 to 10">
+        {Array.from({ length: 11 }, (_, score) => <button type="button" key={score} aria-pressed={selected.moodScore === score} aria-label={`Mood score ${score} out of 10`} onClick={() => updateEntry({ moodScore: score })}>{score}</button>)}
+      </div>
+      <small>{selected.moodScore == null ? 'Not rated' : `Recorded score: ${selected.moodScore} / 10`}</small>
+      {selected.moodScore != null && <button type="button" className="notebook-mood-clear" onClick={() => updateEntry({ moodScore: null })}>Clear rating</button>}
+    </fieldset>
     <div className="notebook-writing"><textarea ref={editorRef} aria-label="Diary entry" value={selected.content} onChange={event => updateEntry({ content: event.target.value })} placeholder="Start writing your thoughts…" spellCheck={spellCheck} style={{ fontSize: `${editorTextSize}px`, lineHeight: '48px' }} onKeyUp={event => { if (inlineDigDeeper && event.key === '.' && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) void handleInlineDigDeeper() }} /></div>
     {inlineDigDeeper && (inlinePrompt || feedbackError || feedbackAction === 'dig_deeper') && <div className="diary-inline-prompt" role="status" aria-live="polite"><div className="diary-inline-prompt-head"><Brain size={14} /> <span>{feedbackAction === 'dig_deeper' ? 'Thinking…' : 'Dig deeper'}</span></div>{inlinePrompt && <p>{inlinePrompt}</p>}{feedbackError && <p className="diary-ai-feedback-error" role="alert">{feedbackError}</p>}<button type="button" onClick={() => { setInlineDigDeeper(false); setInlinePrompt(''); setFeedbackError(''); setFeedbackKind(null); feedbackRequestRef.current += 1 }}>Close</button></div>}
     {saveError && <p className="diary-save-error" role="alert">Could not save this entry: {saveError}</p>}
